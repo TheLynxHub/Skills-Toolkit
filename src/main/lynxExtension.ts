@@ -5,10 +5,13 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+import {SENTRY_DSN} from '../common/constants';
 import {getSkillsCliPath, parseAgentsFromCli, runSkillsCommand} from './cliRunner';
 import {fetchAndParseDiscoverPage} from './discoverParser';
 
 export async function initialExtension(lynxApi: ExtensionMainApi, _utils: MainExtensionUtils, mainIpc: MainIpcApi) {
+  lynxApi.initNodeSentry(SENTRY_DSN);
+
   let storageManager: any = null;
   try {
     storageManager = await _utils.getStorageManager();

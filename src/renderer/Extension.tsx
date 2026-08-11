@@ -2,10 +2,13 @@ import './index.css';
 
 import {ExtensionRendererApi} from '@lynx/plugins/extensions/types/api';
 
+import {SENTRY_DSN} from '../common/constants';
 import SkillsManagerModal from './SkillsManagerModal';
 import SkillsToolkitCard from './ToolsPage';
 
 export function InitialExtensions(lynxAPI: ExtensionRendererApi) {
+  lynxAPI.initBrowserSentry(SENTRY_DSN);
+
   // Register the modal component globally
   lynxAPI.addModal(SkillsManagerModal);
 
