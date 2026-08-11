@@ -25,7 +25,7 @@ export default defineConfig(({mode}) => {
           sentryVitePlugin({
             authToken: process.env.SENTRY_AUTH_TOKEN,
             org: 'lynxhub',
-            project: 'python-toolkit',
+            project: 'skills-toolkit',
             disable: isDev,
             sourcemaps: {
               filesToDeleteAfterUpload: '**/*.map',
@@ -72,7 +72,7 @@ export default defineConfig(({mode}) => {
         sentryVitePlugin({
           authToken: process.env.SENTRY_AUTH_TOKEN,
           org: 'lynxhub',
-          project: 'python-toolkit',
+          project: 'skills-toolkit',
           disable: isDev,
           sourcemaps: {
             filesToDeleteAfterUpload: '**/*.map',
