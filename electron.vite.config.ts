@@ -16,7 +16,7 @@ export default defineConfig(({mode}) => {
       build: {
         sourcemap: true,
         externalizeDeps: {exclude: ['tree-kill']},
-        outDir: resolve('extension_out/main'),
+        outDir: resolve('extension_out/scripts/main'),
         rolldownOptions: {
           input: resolve('extension/src/main/lynxExtension.ts'),
           output: {entryFileNames: 'mainEntry.cjs', format: 'cjs'},
@@ -108,7 +108,7 @@ export default defineConfig(({mode}) => {
       },
       build: {
         sourcemap: true,
-        outDir: resolve('extension_out/renderer'),
+        outDir: resolve('extension_out/scripts/renderer'),
         rolldownOptions: {
           input: resolve('extension/src/renderer/index.html'),
           treeshake: {moduleSideEffects: false},
