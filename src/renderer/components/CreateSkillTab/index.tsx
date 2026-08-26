@@ -15,8 +15,8 @@ import {
   Typography,
 } from '@heroui/react';
 import LynxSwitch from '@lynx/components/LynxSwitch';
-import {CheckCircle, Folder, TrashBin2} from '@solar-icons/react-perf/BoldDuotone';
-import {AltArrowDown, AltArrowUp} from '@solar-icons/react-perf/LineDuotone';
+import {CheckCircleIcon, FolderIcon, TrashBin2Icon} from '@solar-icons/react/bold-duotone';
+import {AltArrowDownIcon, AltArrowUpIcon} from '@solar-icons/react/line-duotone';
 import {PenSquare, Plus, X} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 
@@ -297,7 +297,7 @@ export default function CreateSkillTab({onCreated}: CreateSkillTabProps) {
               'text-center flex flex-col items-center justify-center ' +
               'gap-4 my-auto max-w-xl mx-auto rounded-3xl'
             }>
-            <CheckCircle className="size-16 text-emerald-500" />
+            <CheckCircleIcon className="size-16 text-emerald-500" />
             <div>
               <Typography className="text-xl font-bold text-emerald-400">Skill Created Successfully!</Typography>
               <Description className="text-xs text-semi-muted mt-1 leading-relaxed">
@@ -320,7 +320,7 @@ export default function CreateSkillTab({onCreated}: CreateSkillTabProps) {
                 }>
                 {createdPaths.map(p => (
                   <div key={p} className="flex gap-1.5 items-start">
-                    <Folder className="size-3.5 shrink-0 text-LynxBlue/80 mt-0.5" />
+                    <FolderIcon className="size-3.5 shrink-0 text-LynxBlue/80 mt-0.5" />
                     <span>{p}</span>
                   </div>
                 ))}
@@ -395,7 +395,7 @@ export default function CreateSkillTab({onCreated}: CreateSkillTabProps) {
                     variant="secondary"
                     onPress={handleBrowseProjectFolder}
                     className="flex items-center gap-1.5 shrink-0 px-4">
-                    <Folder className="size-4" /> Browse
+                    <FolderIcon className="size-4" /> Browse
                   </Button>
                 </div>
                 {projectDirs.length === 0 && (
@@ -686,7 +686,7 @@ export default function CreateSkillTab({onCreated}: CreateSkillTabProps) {
                               variant="ghost"
                               isDisabled={idx === 0}
                               isIconOnly>
-                              <AltArrowUp />
+                              <AltArrowUpIcon />
                             </Button>
                             <Button
                               onPress={() => {
@@ -700,7 +700,7 @@ export default function CreateSkillTab({onCreated}: CreateSkillTabProps) {
                               variant="ghost"
                               isDisabled={idx === steps.length - 1}
                               isIconOnly>
-                              <AltArrowDown />
+                              <AltArrowDownIcon />
                             </Button>
                             <Button
                               size="sm"
@@ -708,7 +708,7 @@ export default function CreateSkillTab({onCreated}: CreateSkillTabProps) {
                               isDisabled={steps.length <= 1}
                               onPress={() => setSteps(steps.filter((_, i) => i !== idx))}
                               isIconOnly>
-                              <TrashBin2 />
+                              <TrashBin2Icon />
                             </Button>
                           </div>
                         </div>

@@ -1,8 +1,8 @@
 import {Button, Checkbox, Description, InputGroup, Modal, ScrollShadow, Typography} from '@heroui/react';
 import TabModal from '@lynx/components/TabModal';
-import {Download, SettingsMinimalistic} from '@solar-icons/react-perf/BoldDuotone';
-import {Magnifier} from '@solar-icons/react-perf/Linear';
-import {ArrowDown} from '@solar-icons/react-perf/LineDuotone';
+import {DownloadIcon, SettingsMinimalisticIcon} from '@solar-icons/react/bold-duotone';
+import {ArrowDownIcon} from '@solar-icons/react/line-duotone';
+import {MagnifierIcon} from '@solar-icons/react/linear';
 import {X} from 'lucide-react';
 import {useEffect, useState} from 'react';
 
@@ -107,7 +107,7 @@ export function CreatorSkillsModal({
           <div className="w-90 shrink-0 mr-4">
             <InputGroup variant="secondary" fullWidth>
               <InputGroup.Prefix>
-                <Magnifier className="size-4 text-semi-muted" />
+                <MagnifierIcon className="size-4 text-semi-muted" />
               </InputGroup.Prefix>
               <InputGroup.Input
                 value={searchQuery}
@@ -190,7 +190,7 @@ export function CreatorSkillsModal({
                               className={
                                 'text-[10px] text-semi-muted truncate font-JetBrainsMono flex items-center gap-x-1'
                               }>
-                              {formatInstalls(skill.installs)} <ArrowDown />
+                              {formatInstalls(skill.installs)} <ArrowDownIcon />
                             </span>
                           </div>
                           <Button
@@ -207,9 +207,9 @@ export function CreatorSkillsModal({
                             onClick={e => e.stopPropagation()}
                             isIconOnly>
                             {installed ? (
-                              <SettingsMinimalistic className="size-3.5 text-semi-muted" />
+                              <SettingsMinimalisticIcon className="size-3.5 text-semi-muted" />
                             ) : (
-                              <Download className="size-3.5 text-foreground" />
+                              <DownloadIcon className="size-3.5 text-foreground" />
                             )}
                           </Button>
                         </div>

@@ -1,6 +1,6 @@
 import {Description, Modal, Tabs, Typography} from '@heroui/react';
 import TabModal from '@lynx/components/TabModal';
-import {CloudStorage, Compass, Inbox, PenNewSquare} from '@solar-icons/react-perf/BoldDuotone';
+import {CloudStorageIcon, CompassIcon, InboxIcon, PenNewSquareIcon} from '@solar-icons/react/bold-duotone';
 import {useCallback, useEffect, useState} from 'react';
 
 import CreateSkillTab from './components/CreateSkillTab';
@@ -107,7 +107,7 @@ export default function SkillsManagerModal() {
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
-              <CloudStorage aria-hidden="true" className="size-8 text-LynxPurple" />
+              <CloudStorageIcon aria-hidden="true" className="size-8 text-LynxPurple" />
               <div>
                 <Typography className="text-xl font-bold tracking-wide">Skills Manager</Typography>
                 <Description className="text-xs text-semi-muted mt-0.5">
@@ -127,17 +127,17 @@ export default function SkillsManagerModal() {
             <Tabs.ListContainer>
               <Tabs.List>
                 <Tabs.Tab id="installed" className="flex items-center gap-2">
-                  <Inbox className="size-3.5" />
+                  <InboxIcon className="size-3.5" />
                   Installed
                   <Tabs.Indicator />
                 </Tabs.Tab>
                 <Tabs.Tab id="discover" className="flex items-center gap-2">
-                  <Compass className="size-4" />
+                  <CompassIcon className="size-4" />
                   Discover
                   <Tabs.Indicator />
                 </Tabs.Tab>
                 <Tabs.Tab id="create" className="flex items-center gap-2">
-                  <PenNewSquare className="size-4" />
+                  <PenNewSquareIcon className="size-4" />
                   Create
                   <Tabs.Indicator />
                 </Tabs.Tab>

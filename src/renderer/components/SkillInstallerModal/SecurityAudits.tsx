@@ -1,5 +1,5 @@
 import {Chip, Label, Spinner, Typography} from '@heroui/react';
-import {ShieldCheck} from '@solar-icons/react-perf/BoldDuotone';
+import {ShieldCheckIcon} from '@solar-icons/react/bold-duotone';
 
 import {AuditReport} from '../../types';
 
@@ -13,7 +13,7 @@ export function SecurityAudits({isLoadingAudit, auditReport, auditReports = []}:
   return (
     <div className="flex flex-col gap-1.5 mt-2 bg-surface-secondary border border-border p-3 rounded-2xl">
       <Label className="text-xs font-semibold text-semi-muted flex items-center gap-1">
-        <ShieldCheck className="size-4 text-LynxPurple" />
+        <ShieldCheckIcon className="size-4 text-LynxPurple" />
         Security & Safety Audits
       </Label>
 

@@ -13,8 +13,8 @@ import {
   Tabs,
   Typography,
 } from '@heroui/react';
-import {Fire, Star, VerifiedCheck} from '@solar-icons/react-perf/BoldDuotone';
-import {Magnifier} from '@solar-icons/react-perf/Linear';
+import {FireIcon, StarIcon, VerifiedCheckIcon} from '@solar-icons/react/bold-duotone';
+import {MagnifierIcon} from '@solar-icons/react/linear';
 import {TrendingUp, X} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
 
@@ -161,7 +161,7 @@ export default function DiscoverSkillsTab({
       <div className="flex gap-2 mb-6 shrink-0">
         <InputGroup className="flex-1" variant="secondary">
           <InputGroup.Prefix className="pl-3" aria-hidden="true">
-            <Magnifier className="size-4 text-semi-muted" />
+            <MagnifierIcon className="size-4 text-semi-muted" />
           </InputGroup.Prefix>
           <InputGroup.Input
             className="pl-2"
@@ -337,7 +337,7 @@ export default function DiscoverSkillsTab({
               <Tabs.ListContainer>
                 <Tabs.List>
                   <Tabs.Tab id="all-time" className="flex items-center gap-1.5 text-nowrap">
-                    <Star className="size-4" />
+                    <StarIcon className="size-4" />
                     All Time
                     <Tabs.Indicator />
                   </Tabs.Tab>
@@ -347,12 +347,12 @@ export default function DiscoverSkillsTab({
                     <Tabs.Indicator />
                   </Tabs.Tab>
                   <Tabs.Tab id="hot" className="flex items-center gap-1.5  text-nowrap">
-                    <Fire className="size-4" />
+                    <FireIcon className="size-4" />
                     Hot
                     <Tabs.Indicator />
                   </Tabs.Tab>
                   <Tabs.Tab id="official" className="flex items-center gap-1.5  text-nowrap">
-                    <VerifiedCheck className="size-4" />
+                    <VerifiedCheckIcon className="size-4" />
                     Official
                     <Tabs.Indicator />
                   </Tabs.Tab>

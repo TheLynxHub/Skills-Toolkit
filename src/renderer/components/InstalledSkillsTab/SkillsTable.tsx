@@ -1,7 +1,7 @@
 import type {Selection} from '@heroui/react';
 import {Button, Checkbox, Chip, cn, Spinner, Tooltip} from '@heroui/react';
-import {Folder, TrashBin2} from '@solar-icons/react-perf/BoldDuotone';
-import {Refresh} from '@solar-icons/react-perf/Linear';
+import {FolderIcon, TrashBin2Icon} from '@solar-icons/react/bold-duotone';
+import {RefreshIcon} from '@solar-icons/react/linear';
 
 import {InstalledSkill} from '../../types';
 
@@ -172,7 +172,7 @@ export function SkillsTable({
                       variant="ghost"
                       onPress={() => ipc.send('app:openPath', skill.path)}
                       isIconOnly>
-                      <Folder className="size-4" />
+                      <FolderIcon className="size-4" />
                     </Button>
                   </Tooltip.Trigger>
                   <Tooltip.Content showArrow>
@@ -204,7 +204,7 @@ export function SkillsTable({
                       variant="ghost"
                       isDisabled={isUpdating || isDeleting || !!bulkLoadingStatus}
                       onPress={() => handleUpdate(skill.name, skill.scope === 'global', skill.path)}>
-                      {isUpdating ? <Spinner size="sm" /> : <Refresh className="size-4" />}
+                      {isUpdating ? <Spinner size="sm" /> : <RefreshIcon className="size-4" />}
                     </Button>
                   </Tooltip.Trigger>
                   <Tooltip.Content showArrow>
@@ -225,7 +225,7 @@ export function SkillsTable({
                       variant="ghost"
                       isDisabled={isUpdating || isDeleting || !!bulkLoadingStatus}
                       onPress={() => handleDelete(skill.name, skill.scope === 'global', skill.path)}>
-                      {isDeleting ? <Spinner size="sm" /> : <TrashBin2 className="size-4" />}
+                      {isDeleting ? <Spinner size="sm" /> : <TrashBin2Icon className="size-4" />}
                     </Button>
                   </Tooltip.Trigger>
                   <Tooltip.Content showArrow>

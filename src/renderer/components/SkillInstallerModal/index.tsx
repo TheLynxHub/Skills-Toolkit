@@ -18,7 +18,7 @@ import {
   useFilter,
 } from '@heroui/react';
 import TabModal from '@lynx/components/TabModal';
-import {CheckCircle, CloudStorage, InfoCircle} from '@solar-icons/react-perf/BoldDuotone';
+import {CheckCircleIcon, CloudStorageIcon, InfoCircleIcon} from '@solar-icons/react/bold-duotone';
 import {Plus} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
 
@@ -212,7 +212,7 @@ export default function SkillInstallerModal({selectedSkills, onClose, onInstallS
       <Modal.CloseTrigger onPress={onClose} />
       <Modal.Header className="flex flex-col gap-y-1 px-4">
         <div className="flex items-center gap-2">
-          <CloudStorage className="size-6 text-LynxPurple" />
+          <CloudStorageIcon className="size-6 text-LynxPurple" />
           <Modal.Heading className="text-lg font-bold">
             {selectedSkills.length > 1
               ? `Install ${selectedSkills.length} Skills`
@@ -406,9 +406,9 @@ export default function SkillInstallerModal({selectedSkills, onClose, onInstallS
               installResult.success ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger'
             }`}>
             {installResult.success ? (
-              <CheckCircle className="size-4 shrink-0 mt-0.5 text-success" />
+              <CheckCircleIcon className="size-4 shrink-0 mt-0.5 text-success" />
             ) : (
-              <InfoCircle className="size-4 shrink-0 mt-0.5 text-danger" />
+              <InfoCircleIcon className="size-4 shrink-0 mt-0.5 text-danger" />
             )}
             <span className="break-all">{installResult.message}</span>
           </div>

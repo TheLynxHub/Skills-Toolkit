@@ -1,4 +1,4 @@
-import {CloudStorage, Folder, Laptop, User} from '@solar-icons/react-perf/BoldDuotone';
+import {CloudStorageIcon, FolderIcon, LaptopIcon, UserIcon} from '@solar-icons/react/bold-duotone';
 import React, {useCallback, useMemo} from 'react';
 
 import {InstalledSkill} from '../../types';
@@ -58,7 +58,7 @@ export function useSkillsGroups(installedSkills: InstalledSkill[], filterQuery: 
     return Object.entries(map).map(([folderPath, skills]) => ({
       id: folderPath,
       title: folderPath,
-      icon: React.createElement(Folder, {className: 'size-4 text-LynxBlue'}),
+      icon: React.createElement(FolderIcon, {className: 'size-4 text-LynxBlue'}),
       skills,
     }));
   }, [filteredSkills, getParentFolderPath]);
@@ -82,7 +82,7 @@ export function useSkillsGroups(installedSkills: InstalledSkill[], filterQuery: 
       groups.push({
         id: 'project',
         title: 'Project Scope',
-        icon: React.createElement(Laptop, {className: 'size-4 text-LynxBlue'}),
+        icon: React.createElement(LaptopIcon, {className: 'size-4 text-LynxBlue'}),
         skills: map.project,
       });
     }
@@ -90,7 +90,7 @@ export function useSkillsGroups(installedSkills: InstalledSkill[], filterQuery: 
       groups.push({
         id: 'global',
         title: 'Global Scope',
-        icon: React.createElement(CloudStorage, {className: 'size-4 text-LynxPurple'}),
+        icon: React.createElement(CloudStorageIcon, {className: 'size-4 text-LynxPurple'}),
         skills: map.global,
       });
     }
@@ -116,7 +116,7 @@ export function useSkillsGroups(installedSkills: InstalledSkill[], filterQuery: 
     const groups = Object.entries(map).map(([agentName, skills]) => ({
       id: agentName,
       title: `Agent: ${agentName}`,
-      icon: React.createElement(User, {className: 'size-4 text-LynxPurple'}),
+      icon: React.createElement(UserIcon, {className: 'size-4 text-LynxPurple'}),
       skills,
     }));
 
@@ -124,7 +124,7 @@ export function useSkillsGroups(installedSkills: InstalledSkill[], filterQuery: 
       groups.push({
         id: 'none',
         title: 'Common (No Target Agent)',
-        icon: React.createElement(User, {className: 'size-4 text-semi-muted'}),
+        icon: React.createElement(UserIcon, {className: 'size-4 text-semi-muted'}),
         skills: noAgentSkills,
       });
     }

@@ -15,8 +15,8 @@ import {
   Typography,
 } from '@heroui/react';
 import {bottomToast} from '@lynx/layouts/ToastProviders';
-import {InfoCircle} from '@solar-icons/react-perf/BoldDuotone';
-import {AltArrowDown, Magnifier, Refresh} from '@solar-icons/react-perf/Linear';
+import {InfoCircleIcon} from '@solar-icons/react/bold-duotone';
+import {AltArrowDownIcon, MagnifierIcon, RefreshIcon} from '@solar-icons/react/linear';
 import {Plus, X} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
 
@@ -241,7 +241,7 @@ export default function InstalledSkillsTab({
             'flex flex-col items-center justify-center py-20 border' +
             ' border-dashed border-white/10 rounded-2xl bg-white/5 mx-2'
           }>
-          <InfoCircle aria-hidden="true" className="size-10 text-semi-muted mb-3" />
+          <InfoCircleIcon aria-hidden="true" className="size-10 text-semi-muted mb-3" />
           <Typography className="text-sm font-semibold">No skills installed yet</Typography>
           <Description className="text-xs text-semi-muted mt-1">
             Head over to the 'Discover Skills' tab to install capabilities for your agents.
@@ -294,7 +294,7 @@ export default function InstalledSkillsTab({
                     className="text-xs"
                     isDisabled={!!bulkLoadingStatus}
                     onPress={() => handleBulkUpdate(selectedSkillsList)}>
-                    <Refresh className="size-3.5" />
+                    <RefreshIcon className="size-3.5" />
                     Update Selected
                   </Button>
                   <Button
@@ -303,7 +303,7 @@ export default function InstalledSkillsTab({
                     variant="danger-soft"
                     onPress={onPressBulkRemove}
                     isDisabled={!!bulkLoadingStatus}>
-                    <Refresh className="size-3.5" />
+                    <RefreshIcon className="size-3.5" />
                     {confirmBulkDelete ? 'Confirm Remove?' : 'Remove Selected'}
                   </Button>
                   <Button
@@ -326,7 +326,7 @@ export default function InstalledSkillsTab({
                 <Dropdown>
                   <Dropdown.Trigger>
                     <Button size="sm" variant="secondary" className="text-xs" isDisabled={!!bulkLoadingStatus}>
-                      <Refresh className="size-3.5" />
+                      <RefreshIcon className="size-3.5" />
                       Update All
                     </Button>
                   </Dropdown.Trigger>
@@ -376,7 +376,7 @@ export default function InstalledSkillsTab({
             <div className="flex items-center gap-2 pt-1">
               <InputGroup className="w-64" variant="secondary">
                 <InputGroup.Prefix aria-hidden="true">
-                  <Magnifier className="size-3.5 text-semi-muted" />
+                  <MagnifierIcon className="size-3.5 text-semi-muted" />
                 </InputGroup.Prefix>
                 <InputGroup.Input
                   value={filterQuery}
@@ -467,7 +467,7 @@ export default function InstalledSkillsTab({
                           ' bg-transparent hover:bg-transparent border-none p-0 px-4 focus:outline-none'
                         }>
                         <div className="flex items-center gap-2 truncate">
-                          <AltArrowDown
+                          <AltArrowDownIcon
                             className={cn(
                               'size-4 text-semi-muted transition-transform duration-200 shrink-0',
                               !expandedKeys.has(group.id) && '-rotate-90',

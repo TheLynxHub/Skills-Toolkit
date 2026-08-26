@@ -1,6 +1,6 @@
 import {Button, Description, InputGroup, Modal, Typography} from '@heroui/react';
 import TabModal from '@lynx/components/TabModal';
-import {CloudStorage, Folder} from '@solar-icons/react-perf/BoldDuotone';
+import {CloudStorageIcon, FolderIcon} from '@solar-icons/react/bold-duotone';
 import {useState} from 'react';
 
 import {RegistrySkill} from '../types';
@@ -51,7 +51,7 @@ export default function InstallCustomSkillModal({isOpen, onClose, onProceed}: In
       <Modal.CloseTrigger onPress={onClose} />
       <Modal.Header className="flex flex-col gap-y-1 px-4">
         <div className="flex items-center gap-2">
-          <CloudStorage className="size-6 text-LynxPurple" />
+          <CloudStorageIcon className="size-6 text-LynxPurple" />
           <Modal.Heading className="text-lg font-bold">Install Custom Skill</Modal.Heading>
         </div>
         <Description className="text-xs text-semi-muted">
@@ -77,7 +77,7 @@ export default function InstallCustomSkillModal({isOpen, onClose, onProceed}: In
                 aria-label="Select local folder"
                 className="h-7 w-7 min-w-7 p-0 hover:bg-white/10 rounded-lg flex items-center justify-center"
                 isIconOnly>
-                <Folder className="size-4 text-semi-muted hover:text-white" />
+                <FolderIcon className="size-4 text-semi-muted hover:text-white" />
               </Button>
             </InputGroup.Suffix>
           </InputGroup>

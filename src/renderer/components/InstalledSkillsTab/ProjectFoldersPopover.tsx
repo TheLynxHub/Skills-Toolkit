@@ -1,6 +1,6 @@
 import {Button, Chip, Popover} from '@heroui/react';
-import {Folder, TrashBin2} from '@solar-icons/react-perf/BoldDuotone';
-import {Settings} from '@solar-icons/react-perf/Linear';
+import {FolderIcon, TrashBin2Icon} from '@solar-icons/react/bold-duotone';
+import {SettingsIcon} from '@solar-icons/react/linear';
 
 interface ProjectFoldersPopoverProps {
   projectDirs: string[];
@@ -19,7 +19,7 @@ export function ProjectFoldersPopover({
     <Popover>
       <Popover.Trigger>
         <Button size="sm" variant="secondary" aria-label="Manage project folders" isIconOnly>
-          <Settings />
+          <SettingsIcon />
         </Button>
       </Popover.Trigger>
       <Popover.Content className="w-120">
@@ -27,7 +27,7 @@ export function ProjectFoldersPopover({
           <Popover.Arrow />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Folder className="size-4 text-LynxBlue" />
+              <FolderIcon className="size-4 text-LynxBlue" />
               <span className="text-xs font-semibold text-foreground/90">Project Folders</span>
               <Chip
                 size="sm"
@@ -73,7 +73,7 @@ export function ProjectFoldersPopover({
                       size="sm"
                       variant="ghost"
                       onPress={() => onRemoveProjectDir(dir)}>
-                      <TrashBin2 className="size-3.5" />
+                      <TrashBin2Icon className="size-3.5" />
                     </Button>
                   </div>
                 );

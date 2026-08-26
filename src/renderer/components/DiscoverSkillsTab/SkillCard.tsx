@@ -1,5 +1,5 @@
 import {Button, Card, Checkbox, Chip, Link, Typography} from '@heroui/react';
-import {Download, Fire, SettingsMinimalistic} from '@solar-icons/react-perf/BoldDuotone';
+import {DownloadIcon, FireIcon, SettingsMinimalisticIcon} from '@solar-icons/react/bold-duotone';
 import {TrendingUp} from 'lucide-react';
 import {useEffect, useState} from 'react';
 
@@ -72,13 +72,13 @@ export function SkillCard({
     };
   }, [skill.source, skill.name]);
 
-  let Icon = Download;
+  let Icon = DownloadIcon;
   let iconClass = 'text-semi-muted/80';
   if (activeSubTab === 'trending') {
     Icon = TrendingUp as any;
     iconClass = 'text-LynxBlue';
   } else if (activeSubTab === 'hot') {
-    Icon = Fire;
+    Icon = FireIcon;
     iconClass = 'text-LynxOrange';
   }
 
@@ -155,7 +155,7 @@ export function SkillCard({
 
       <Card.Footer className="flex justify-end gap-2 border-t border-border-secondary/50 pt-3">
         <Button size="sm" onPress={() => onSelect(skill)} className="w-full justify-center">
-          {installed ? <SettingsMinimalistic className="size-4" /> : <Download className="size-4" />}
+          {installed ? <SettingsMinimalisticIcon className="size-4" /> : <DownloadIcon className="size-4" />}
           {installed ? 'Configure / Re-install' : 'Install'}
         </Button>
       </Card.Footer>
