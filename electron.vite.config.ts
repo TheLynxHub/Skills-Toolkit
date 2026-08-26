@@ -38,21 +38,21 @@ export default defineConfig(({mode}) => {
           name: 'copy-skills',
           closeBundle() {
             const srcDir = resolve(__dirname, 'node_modules/skills/dist');
-            const destDir = resolve(__dirname, '../extension_out/main/skills');
+            const destDir = resolve(__dirname, '../extension_out/scripts/main/skills');
             if (existsSync(srcDir)) {
               mkdirSync(destDir, {recursive: true});
               cpSync(srcDir, destDir, {recursive: true});
-              console.log('Successfully copied skills CLI to extension_out/main/skills');
+              console.log('Successfully copied skills CLI to extension_out/scripts/main/skills');
             } else {
               console.error('Could not find skills dist folder at', srcDir);
             }
 
             const yamlSrcDir = resolve(__dirname, 'node_modules/yaml');
-            const yamlDestDir = resolve(__dirname, '../extension_out/main/skills/node_modules/yaml');
+            const yamlDestDir = resolve(__dirname, '../extension_out/scripts/main/skills/node_modules/yaml');
             if (existsSync(yamlSrcDir)) {
               mkdirSync(yamlDestDir, {recursive: true});
               cpSync(yamlSrcDir, yamlDestDir, {recursive: true});
-              console.log('Successfully copied yaml dependency to extension_out/main/skills/node_modules/yaml');
+              console.log('Successfully copied yaml dependency to extension_out/scripts/main/skills/node_modules/yaml');
             } else {
               console.error('Could not find yaml folder at', yamlSrcDir);
             }
