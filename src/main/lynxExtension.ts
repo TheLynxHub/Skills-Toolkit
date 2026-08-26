@@ -1,5 +1,6 @@
 import {MainIpcApi} from '@lynx_main/plugins/extensions/ipcWrapper';
 import {ExtensionMainApi, MainExtensionUtils} from '@lynx_main/plugins/extensions/types';
+import type {SqliteStorageManager} from '@lynx_main/storageSqlite/storageOperations';
 import {dialog} from 'electron';
 import fs from 'fs';
 import os from 'os';
@@ -12,7 +13,7 @@ import {fetchAndParseDiscoverPage} from './discoverParser';
 export async function initialExtension(lynxApi: ExtensionMainApi, _utils: MainExtensionUtils, mainIpc: MainIpcApi) {
   lynxApi.initNodeSentry(SENTRY_DSN);
 
-  let storageManager: any = null;
+  let storageManager: SqliteStorageManager | null = null;
   try {
     storageManager = await _utils.getStorageManager();
   } catch (err) {
