@@ -3,10 +3,10 @@
   "version": "0.1.1",
   "author": {
     "name": "KindaBrazy",
-    "url": "https://github.com/KindaBrazy"
+    "url": "https://github.com/TheLynxHub"
   },
-  "homepage": "https://github.com/KindaBrazy/LynxHub-Skills-Toolkit",
-  "repository": "https://github.com/KindaBrazy/LynxHub-Skills-Toolkit",
+  "homepage": "https://github.com/TheLynxHub/Skills-Toolkit",
+  "repository": "https://github.com/TheLynxHub/Skills-Toolkit",
   "type": "module",
   "dependencies": {
     "skills": "^1.5.14"
