@@ -9,6 +9,6 @@
   "repository": "https://github.com/TheLynxHub/Skills-Toolkit",
   "type": "module",
   "dependencies": {
-    "skills": "^1.5.14"
+    "skills": "^1.5.23"
   }
 }
