@@ -16,7 +16,7 @@ var __copyProps = (to, from, except, desc) => {
 	}
 	return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule || !__hasOwnProp.call(mod, "default") ? __defProp(target, "default", {
 	value: mod,
 	enumerable: true
 }) : target, mod));
@@ -29,8 +29,12 @@ os = __toESM(os, 1);
 let path = require("path");
 path = __toESM(path, 1);
 let child_process = require("child_process");
+let util = require("util");
+//#region extension/src/common/constants.ts
+var SENTRY_DSN = "https://b984e6638314a6531a679b579ca2ac16@o4509344104316928.ingest.us.sentry.io/4511891831324672";
+//#endregion
 //#region extension/src/main/cliRunner.ts
-var execAsync = (0, require("util").promisify)(child_process.exec);
+var execAsync = (0, util.promisify)(child_process.exec);
 function getSkillsCliPath() {
 	if (typeof __dirname !== "undefined") {
 		const prodPath = path.default.join(__dirname, "skills", "cli.mjs");
@@ -106,7 +110,7 @@ function parseAgentsFromCli(cliPath) {
 //#endregion
 //#region extension/src/main/discoverParser.ts
 var discoverCache = /* @__PURE__ */ new Map();
-var CACHE_TTL_MS = 300 * 1e3;
+var CACHE_TTL_MS = 3e5;
 function getCachedDiscoverData(type) {
 	const cached = discoverCache.get(type);
 	if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) return cached.data;
@@ -213,6 +217,7 @@ async function fetchAndParseDiscoverPage(type) {
 //#endregion
 //#region extension/src/main/lynxExtension.ts
 async function initialExtension(lynxApi, _utils, mainIpc) {
+	lynxApi.initNodeSentry(SENTRY_DSN);
 	let storageManager = null;
 	try {
 		storageManager = await _utils.getStorageManager();
@@ -228,7 +233,7 @@ async function initialExtension(lynxApi, _utils, mainIpc) {
 		storageManager.setCustomData("skills-project-dirs", dirs);
 	};
 	const descriptionCache = /* @__PURE__ */ new Map();
-	const DESC_CACHE_TTL = 1800 * 1e3;
+	const DESC_CACHE_TTL = 18e5;
 	lynxApi.listenForChannels(() => {
 		mainIpc.lynxIpc.handle("skills-manager:list", async (isGlobal) => {
 			try {
@@ -478,3 +483,5 @@ async function initialExtension(lynxApi, _utils, mainIpc) {
 }
 //#endregion
 exports.initialExtension = initialExtension;
+
+//# sourceMappingURL=mainEntry.cjs.map

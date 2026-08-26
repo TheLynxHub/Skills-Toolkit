@@ -1,4 +1,4 @@
-import { n as __require, t as __commonJSMin } from "../../rolldown-runtime.mjs";
+import { __commonJSMin, __require } from "../../rolldown-runtime.mjs";
 var require_dist = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var __defProp = Object.defineProperty;
 	var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -134,5 +134,9 @@ var require_dist = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 			agent: void 0
 		};
 	}
+	0 && (module.exports = {
+		KNOWN_AGENTS,
+		determineAgent
+	});
 }));
-export { require_dist as t };
+export { require_dist };

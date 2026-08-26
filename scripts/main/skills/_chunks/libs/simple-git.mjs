@@ -1,9 +1,10 @@
-import { r as __toESM } from "../rolldown-runtime.mjs";
-import { n as require_src, t as require_dist } from "./@kwsites/file-exists.mjs";
-import { t as require_dist$1 } from "./@kwsites/promise-deferred.mjs";
-import { Buffer as Buffer$1 } from "node:buffer";
-import { spawn } from "child_process";
+import { __toESM } from "../rolldown-runtime.mjs";
+import { require_dist, require_src } from "./@kwsites/file-exists.mjs";
+import { c, o, r } from "./@simple-git/args-pathspec.mjs";
+import { require_dist as require_dist$1 } from "./@kwsites/promise-deferred.mjs";
+import { ne } from "./@simple-git/argv-parser.mjs";
 import { normalize } from "node:path";
+import { spawn } from "child_process";
 import { EventEmitter } from "node:events";
 var import_dist = require_dist();
 var import_src = /* @__PURE__ */ __toESM(require_src(), 1);
@@ -34,22 +35,6 @@ var __copyProps = (to, from, except, desc) => {
 	return to;
 };
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-function pathspec(...paths) {
-	const key = new String(paths);
-	cache.set(key, paths);
-	return key;
-}
-function isPathSpec(path) {
-	return path instanceof String && cache.has(path);
-}
-function toPaths(pathSpec) {
-	return cache.get(pathSpec) || [];
-}
-var cache;
-var init_pathspec = __esm({ "src/lib/args/pathspec.ts"() {
-	"use strict";
-	cache = /* @__PURE__ */ new WeakMap();
-} });
 var GitError;
 var init_git_error = __esm({ "src/lib/errors/git-error.ts"() {
 	"use strict";
@@ -157,7 +142,7 @@ function prefixedArray(input, prefix) {
 	return output;
 }
 function bufferToString(input) {
-	return (Array.isArray(input) ? Buffer$1.concat(input) : input).toString("utf-8");
+	return (Array.isArray(input) ? Buffer.concat(input) : input).toString("utf-8");
 }
 function pick(source, properties) {
 	const out = {};
@@ -173,7 +158,9 @@ function orVoid(input) {
 	if (input === false) return;
 	return input;
 }
-var NULL, NOOP, objectToString;
+var NULL;
+var NOOP;
+var objectToString;
 var init_util = __esm({ "src/lib/utils/util.ts"() {
 	"use strict";
 	init_argument_filters();
@@ -186,7 +173,7 @@ function filterType(input, filter, def) {
 	return arguments.length > 2 ? def : void 0;
 }
 function filterPrimitives(input, omit) {
-	const type = isPathSpec(input) ? "string" : typeof input;
+	const type = r(input) ? "string" : typeof input;
 	return /number|string|boolean/.test(type) && (!omit || !omit.includes(type));
 }
 function filterPlainObject(input) {
@@ -195,10 +182,13 @@ function filterPlainObject(input) {
 function filterFunction(input) {
 	return typeof input === "function";
 }
-var filterArray, filterNumber, filterString, filterStringOrStringArray, filterHasLength;
+var filterArray;
+var filterNumber;
+var filterString;
+var filterStringOrStringArray;
+var filterHasLength;
 var init_argument_filters = __esm({ "src/lib/utils/argument-filters.ts"() {
 	"use strict";
-	init_pathspec();
 	init_util();
 	filterArray = (input) => {
 		return Array.isArray(input);
@@ -207,7 +197,7 @@ var init_argument_filters = __esm({ "src/lib/utils/argument-filters.ts"() {
 		return typeof input === "number";
 	};
 	filterString = (input) => {
-		return typeof input === "string";
+		return typeof input === "string" || r(input);
 	};
 	filterStringOrStringArray = (input) => {
 		return filterString(input) || Array.isArray(input) && input.every(filterString);
@@ -244,7 +234,8 @@ var init_git_output_streams = __esm({ "src/lib/utils/git-output-streams.ts"() {
 function useMatchesDefault() {
 	throw new Error(`LineParser:useMatches not implemented`);
 }
-var LineParser, RemoteLineParser;
+var LineParser;
+var RemoteLineParser;
 var init_line_parser = __esm({ "src/lib/utils/line-parser.ts"() {
 	"use strict";
 	LineParser = class {
@@ -307,7 +298,7 @@ function appendTaskOptions(options, commands = []) {
 	if (!filterPlainObject(options)) return commands;
 	return Object.keys(options).reduce((commands2, key) => {
 		const value = options[key];
-		if (isPathSpec(value)) commands2.push(value);
+		if (r(value)) commands2.push(value);
 		else if (filterPrimitives(value, ["boolean"])) commands2.push(key + "=" + value);
 		else if (Array.isArray(value)) {
 			for (const v of value) if (!filterPrimitives(v, ["string", "number"])) commands2.push(key + "=" + v);
@@ -336,7 +327,6 @@ var init_task_options = __esm({ "src/lib/utils/task-options.ts"() {
 	"use strict";
 	init_argument_filters();
 	init_util();
-	init_pathspec();
 } });
 function callTaskParser(parser4, streams) {
 	return parser4(streams.stdOut, streams.stdErr);
@@ -454,7 +444,9 @@ function checkIsBareRepoTask() {
 function isNotRepoMessage(error) {
 	return /(Not a git repository|Kein Git-Repository)/i.test(String(error));
 }
-var CheckRepoActions, onError, parser;
+var CheckRepoActions;
+var onError;
+var parser;
 var init_check_is_repo = __esm({ "src/lib/tasks/check-is-repo.ts"() {
 	"use strict";
 	init_utils();
@@ -482,7 +474,10 @@ function cleanSummaryParser(dryRun, text) {
 	});
 	return summary;
 }
-var CleanResponse, removalRegexp, dryRunRemovalRegexp, isFolderRegexp;
+var CleanResponse;
+var removalRegexp;
+var dryRunRemovalRegexp;
+var isFolderRegexp;
 var init_CleanSummary = __esm({ "src/lib/responses/CleanSummary.ts"() {
 	"use strict";
 	init_utils();
@@ -617,7 +612,11 @@ function isInteractiveMode(option) {
 	if (/^-[^\-]/.test(option)) return option.indexOf("i") > 0;
 	return option === "--interactive";
 }
-var CONFIG_ERROR_INTERACTIVE_MODE, CONFIG_ERROR_MODE_REQUIRED, CONFIG_ERROR_UNKNOWN_OPTION, CleanOptions, CleanOptionValues;
+var CONFIG_ERROR_INTERACTIVE_MODE;
+var CONFIG_ERROR_MODE_REQUIRED;
+var CONFIG_ERROR_UNKNOWN_OPTION;
+var CleanOptions;
+var CleanOptionValues;
 var init_clean = __esm({ "src/lib/tasks/clean.ts"() {
 	"use strict";
 	init_CleanSummary();
@@ -792,7 +791,8 @@ var init_config = __esm({ "src/lib/tasks/config.ts"() {
 function isDiffNameStatus(input) {
 	return diffNameStatus.has(input);
 }
-var DiffNameStatus, diffNameStatus;
+var DiffNameStatus;
+var diffNameStatus;
 var init_diff_name_status = __esm({ "src/lib/tasks/diff-name-status.ts"() {
 	"use strict";
 	DiffNameStatus = /* @__PURE__ */ ((DiffNameStatus2) => {
@@ -852,7 +852,10 @@ function grep_default() {
 		}, then);
 	} };
 }
-var disallowedOptions, Query, _a, GrepQuery;
+var disallowedOptions;
+var Query;
+var _a;
+var GrepQuery;
 var init_grep = __esm({ "src/lib/tasks/grep.ts"() {
 	"use strict";
 	init_utils();
@@ -898,7 +901,8 @@ function getResetMode(mode) {
 function isValidResetMode(mode) {
 	return typeof mode === "string" && validResetModes.includes(mode);
 }
-var ResetMode, validResetModes;
+var ResetMode;
+var validResetModes;
 var init_reset = __esm({ "src/lib/tasks/reset.ts"() {
 	"use strict";
 	init_utils();
@@ -1090,7 +1094,10 @@ var init_git_executor_chain = __esm({ "src/lib/runners/git-executor-chain.ts"() 
 		}
 		async attemptRemoteTask(task, logger) {
 			const binary = this._plugins.exec("spawn.binary", "", pluginContext(task, task.commands));
-			const args = this._plugins.exec("spawn.args", [...task.commands], pluginContext(task, task.commands));
+			const args = this._plugins.exec("spawn.args", [...task.commands], {
+				...pluginContext(task, task.commands),
+				env: { ...this.env }
+			});
 			const raw = await this.gitResponse(task, binary, args, this.outputHandler, logger.step("SPAWN"));
 			const outputStreams = await this.handleTaskData(task, args, raw, logger.step("HANDLE"));
 			logger(`passing response to task's parser as a %s`, task.format);
@@ -1429,7 +1436,9 @@ function parseInit(bare, path, text) {
 	}
 	return new InitSummary(bare, path, /^re/i.test(response), gitDir);
 }
-var InitSummary, initResponseRegex, reInitResponseRegex;
+var InitSummary;
+var initResponseRegex;
+var reInitResponseRegex;
 var init_InitSummary = __esm({ "src/lib/responses/InitSummary.ts"() {
 	"use strict";
 	InitSummary = class {
@@ -1494,7 +1503,11 @@ function getDiffParser(format = "") {
 	const parser4 = diffSummaryParsers[format];
 	return (stdOut) => parseStringResponse(new DiffSummary(), parser4, stdOut, false);
 }
-var statParser, numStatParser, nameOnlyParser, nameStatusParser, diffSummaryParsers;
+var statParser;
+var numStatParser;
+var nameOnlyParser;
+var nameStatusParser;
+var diffSummaryParsers;
 var init_parse_diff_summary = __esm({ "src/lib/parsers/parse-diff-summary.ts"() {
 	"use strict";
 	init_log_format();
@@ -1602,7 +1615,10 @@ function createListLogSummaryParser(splitter = SPLITTER, fields = defaultFieldNa
 		};
 	};
 }
-var START_BOUNDARY, COMMIT_BOUNDARY, SPLITTER, defaultFieldNames;
+var START_BOUNDARY;
+var COMMIT_BOUNDARY;
+var SPLITTER;
+var defaultFieldNames;
 var init_parse_list_log_summary = __esm({ "src/lib/parsers/parse-list-log-summary.ts"() {
 	"use strict";
 	init_utils();
@@ -1684,7 +1700,7 @@ function parseLogOptions(opt = {}, customArgs = []) {
 		const rangeOperator = opt.symmetric !== false ? "..." : "..";
 		suffix.push(`${opt.from || ""}${rangeOperator}${opt.to || ""}`);
 	}
-	if (filterString(opt.file)) command.push("--follow", pathspec(opt.file));
+	if (filterString(opt.file)) command.push("--follow", c(opt.file));
 	appendTaskOptions(userOptions(opt), command);
 	return {
 		fields,
@@ -1718,7 +1734,6 @@ var excludeOptions;
 var init_log = __esm({ "src/lib/tasks/log.ts"() {
 	"use strict";
 	init_log_format();
-	init_pathspec();
 	init_parse_list_log_summary();
 	init_utils();
 	init_task();
@@ -1740,7 +1755,8 @@ var init_log = __esm({ "src/lib/tasks/log.ts"() {
 		return excludeOptions2;
 	})(excludeOptions || {});
 } });
-var MergeSummaryConflict, MergeSummaryDetail;
+var MergeSummaryConflict;
+var MergeSummaryDetail;
 var init_MergeSummary = __esm({ "src/lib/responses/MergeSummary.ts"() {
 	"use strict";
 	MergeSummaryConflict = class {
@@ -1771,7 +1787,8 @@ var init_MergeSummary = __esm({ "src/lib/responses/MergeSummary.ts"() {
 		}
 	};
 } });
-var PullSummary, PullFailedSummary;
+var PullSummary;
+var PullFailedSummary;
 var init_PullSummary = __esm({ "src/lib/responses/PullSummary.ts"() {
 	"use strict";
 	PullSummary = class {
@@ -1857,7 +1874,8 @@ var init_parse_remote_objects = __esm({ "src/lib/parsers/parse-remote-objects.ts
 function parseRemoteMessages(_stdOut, stdErr) {
 	return parseStringResponse({ remoteMessages: new RemoteMessageSummary() }, parsers2, stdErr);
 }
-var parsers2, RemoteMessageSummary;
+var parsers2;
+var RemoteMessageSummary;
 var init_parse_remote_messages = __esm({ "src/lib/parsers/parse-remote-messages.ts"() {
 	"use strict";
 	init_utils();
@@ -1889,7 +1907,13 @@ function parsePullErrorResult(stdOut, stdErr) {
 	const pullError = parseStringResponse(new PullFailedSummary(), errorParsers, [stdOut, stdErr]);
 	return pullError.message && pullError;
 }
-var FILE_UPDATE_REGEX, SUMMARY_REGEX, ACTION_REGEX, parsers3, errorParsers, parsePullDetail, parsePullResult;
+var FILE_UPDATE_REGEX;
+var SUMMARY_REGEX;
+var ACTION_REGEX;
+var parsers3;
+var errorParsers;
+var parsePullDetail;
+var parsePullResult;
 var init_parse_pull = __esm({ "src/lib/parsers/parse-pull.ts"() {
 	"use strict";
 	init_PullSummary();
@@ -1935,7 +1959,9 @@ var init_parse_pull = __esm({ "src/lib/parsers/parse-pull.ts"() {
 		return Object.assign(new PullSummary(), parsePullDetail(stdOut, stdErr), parseRemoteMessages(stdOut, stdErr));
 	};
 } });
-var parsers4, parseMergeResult, parseMergeDetail;
+var parsers4;
+var parseMergeResult;
+var parseMergeDetail;
 var init_parse_merge = __esm({ "src/lib/parsers/parse-merge.ts"() {
 	"use strict";
 	init_MergeSummary();
@@ -1997,7 +2023,9 @@ function pushResultPushedItem(local, remote, status) {
 		remote
 	};
 }
-var parsers5, parsePushResult, parsePushDetail;
+var parsers5;
+var parsePushResult;
+var parsePushDetail;
 var init_parse_push = __esm({ "src/lib/parsers/parse-push.ts"() {
 	"use strict";
 	init_utils();
@@ -2093,7 +2121,8 @@ var init_show = __esm({ "src/lib/tasks/show.ts"() {
 	init_utils();
 	init_task();
 } });
-var fromPathRegex, FileStatusSummary;
+var fromPathRegex;
+var FileStatusSummary;
 var init_FileStatusSummary = __esm({ "src/lib/responses/FileStatusSummary.ts"() {
 	"use strict";
 	fromPathRegex = /^(.+)\0(.+)$/;
@@ -2125,13 +2154,13 @@ function parser3(indexX, indexY, handler) {
 	return [`${indexX}${indexY}`, handler];
 }
 function conflicts(indexX, ...indexY) {
-	return indexY.map((y) => parser3(indexX, y, (result, file) => append(result.conflicted, file)));
+	return indexY.map((y) => parser3(indexX, y, (result, file) => result.conflicted.push(file)));
 }
 function splitLine(result, lineStr) {
 	const trimmed2 = lineStr.trim();
 	switch (" ") {
-		case trimmed2.charAt(2): return data(trimmed2.charAt(0), trimmed2.charAt(1), trimmed2.substr(3));
-		case trimmed2.charAt(1): return data(" ", trimmed2.charAt(0), trimmed2.substr(2));
+		case trimmed2.charAt(2): return data(trimmed2.charAt(0), trimmed2.charAt(1), trimmed2.slice(3));
+		case trimmed2.charAt(1): return data(" ", trimmed2.charAt(0), trimmed2.slice(2));
 		default: return;
 	}
 	function data(index, workingDir, path) {
@@ -2141,7 +2170,9 @@ function splitLine(result, lineStr) {
 		if (raw !== "##" && raw !== "!!") result.files.push(new FileStatusSummary(path, index, workingDir));
 	}
 }
-var StatusSummary, parsers6, parseStatusSummary;
+var StatusSummary;
+var parsers6;
+var parseStatusSummary;
 var init_StatusSummary = __esm({ "src/lib/responses/StatusSummary.ts"() {
 	"use strict";
 	init_utils();
@@ -2168,26 +2199,42 @@ var init_StatusSummary = __esm({ "src/lib/responses/StatusSummary.ts"() {
 		}
 	};
 	parsers6 = new Map([
-		parser3(" ", "A", (result, file) => append(result.created, file)),
-		parser3(" ", "D", (result, file) => append(result.deleted, file)),
-		parser3(" ", "M", (result, file) => append(result.modified, file)),
-		parser3("A", " ", (result, file) => append(result.created, file) && append(result.staged, file)),
-		parser3("A", "M", (result, file) => append(result.created, file) && append(result.staged, file) && append(result.modified, file)),
-		parser3("D", " ", (result, file) => append(result.deleted, file) && append(result.staged, file)),
-		parser3("M", " ", (result, file) => append(result.modified, file) && append(result.staged, file)),
-		parser3("M", "M", (result, file) => append(result.modified, file) && append(result.staged, file)),
+		parser3(" ", "A", (result, file) => result.created.push(file)),
+		parser3(" ", "D", (result, file) => result.deleted.push(file)),
+		parser3(" ", "M", (result, file) => result.modified.push(file)),
+		parser3("A", " ", (result, file) => {
+			result.created.push(file);
+			result.staged.push(file);
+		}),
+		parser3("A", "M", (result, file) => {
+			result.created.push(file);
+			result.staged.push(file);
+			result.modified.push(file);
+		}),
+		parser3("D", " ", (result, file) => {
+			result.deleted.push(file);
+			result.staged.push(file);
+		}),
+		parser3("M", " ", (result, file) => {
+			result.modified.push(file);
+			result.staged.push(file);
+		}),
+		parser3("M", "M", (result, file) => {
+			result.modified.push(file);
+			result.staged.push(file);
+		}),
 		parser3("R", " ", (result, file) => {
-			append(result.renamed, renamedFile(file));
+			result.renamed.push(renamedFile(file));
 		}),
 		parser3("R", "M", (result, file) => {
 			const renamed = renamedFile(file);
-			append(result.renamed, renamed);
-			append(result.modified, renamed.to);
+			result.renamed.push(renamed);
+			result.modified.push(renamed.to);
 		}),
 		parser3("!", "!", (_result, _file) => {
-			append(_result.ignored = _result.ignored || [], _file);
+			(_result.ignored = _result.ignored || []).push(_file);
 		}),
-		parser3("?", "?", (result, file) => append(result.not_added, file)),
+		parser3("?", "?", (result, file) => result.not_added.push(file)),
 		...conflicts("A", "A", "U"),
 		...conflicts("D", "D", "U"),
 		...conflicts("U", "A", "D", "U"),
@@ -2279,7 +2326,8 @@ function versionParser(stdOut) {
 	if (stdOut === NOT_INSTALLED) return notInstalledResponse();
 	return parseStringResponse(versionResponse(0, 0, 0, stdOut), parsers7, stdOut);
 }
-var NOT_INSTALLED, parsers7;
+var NOT_INSTALLED;
+var parsers7;
 var init_version = __esm({ "src/lib/tasks/version.ts"() {
 	"use strict";
 	init_utils();
@@ -2289,6 +2337,37 @@ var init_version = __esm({ "src/lib/tasks/version.ts"() {
 	}), new LineParser(/version (\d+)\.(\d+)\.(\D+)(.+)?$/, (result, [major, minor, patch, agent = ""]) => {
 		Object.assign(result, versionResponse(asNumber(major), asNumber(minor), patch, agent));
 	})];
+} });
+function createCloneTask(api, task, repoPath, ...args) {
+	if (!filterString(repoPath)) return configurationErrorTask(`git.${api}() requires a string 'repoPath'`);
+	return task(repoPath, filterType(args[0], filterString), getTrailingOptions(arguments));
+}
+function clone_default() {
+	return {
+		clone(repo, ...rest) {
+			return this._runTask(createCloneTask("clone", cloneTask, filterType(repo, filterString), ...rest), trailingFunctionArgument(arguments));
+		},
+		mirror(repo, ...rest) {
+			return this._runTask(createCloneTask("mirror", cloneMirrorTask, filterType(repo, filterString), ...rest), trailingFunctionArgument(arguments));
+		}
+	};
+}
+var cloneTask;
+var cloneMirrorTask;
+var init_clone = __esm({ "src/lib/tasks/clone.ts"() {
+	"use strict";
+	init_task();
+	init_utils();
+	cloneTask = (repo, directory, customArgs) => {
+		const commands = ["clone", ...customArgs];
+		filterString(repo) && commands.push(c(repo));
+		filterString(directory) && commands.push(c(directory));
+		return straightThroughStringTask(commands);
+	};
+	cloneMirrorTask = (repo, directory, customArgs) => {
+		append(customArgs, "--mirror");
+		return cloneTask(repo, directory, customArgs);
+	};
 } });
 var simple_git_api_exports = {};
 __export(simple_git_api_exports, { SimpleGitApi: () => SimpleGitApi });
@@ -2313,6 +2392,7 @@ var init_simple_git_api = __esm({ "src/lib/simple-git-api.ts"() {
 	init_task();
 	init_version();
 	init_utils();
+	init_clone();
 	SimpleGitApi = class {
 		constructor(_executor) {
 			this._executor = _executor;
@@ -2371,11 +2451,12 @@ var init_simple_git_api = __esm({ "src/lib/simple-git-api.ts"() {
 			return this._runTask(statusTask(getTrailingOptions(arguments)), trailingFunctionArgument(arguments));
 		}
 	};
-	Object.assign(SimpleGitApi.prototype, checkout_default(), commit_default(), config_default(), count_objects_default(), first_commit_default(), grep_default(), log_default(), show_default(), version_default());
+	Object.assign(SimpleGitApi.prototype, checkout_default(), clone_default(), commit_default(), config_default(), count_objects_default(), first_commit_default(), grep_default(), log_default(), show_default(), version_default());
 } });
 var scheduler_exports = {};
 __export(scheduler_exports, { Scheduler: () => Scheduler });
-var createScheduledTask, Scheduler;
+var createScheduledTask;
+var Scheduler;
 var init_scheduler = __esm({ "src/lib/runners/scheduler.ts"() {
 	"use strict";
 	init_utils();
@@ -2465,7 +2546,10 @@ var init_BranchDeleteSummary = __esm({ "src/lib/responses/BranchDeleteSummary.ts
 function hasBranchDeletionError(data, processExitCode) {
 	return processExitCode === 1 && deleteErrorRegex.test(data);
 }
-var deleteSuccessRegex, deleteErrorRegex, parsers8, parseBranchDeletions;
+var deleteSuccessRegex;
+var deleteErrorRegex;
+var parsers8;
+var parseBranchDeletions;
 var init_parse_branch_delete = __esm({ "src/lib/parsers/parse-branch-delete.ts"() {
 	"use strict";
 	init_BranchDeleteSummary();
@@ -2518,7 +2602,8 @@ function branchStatus(input) {
 function parseBranchSummary(stdOut, currentOnly = false) {
 	return parseStringResponse(new BranchSummaryResult(), currentOnly ? [currentBranchParser] : parsers9, stdOut);
 }
-var parsers9, currentBranchParser;
+var parsers9;
+var currentBranchParser;
 var init_parse_branch = __esm({ "src/lib/parsers/parse-branch.ts"() {
 	"use strict";
 	init_BranchSummary();
@@ -2640,30 +2725,6 @@ var init_check_ignore = __esm({ "src/lib/tasks/check-ignore.ts"() {
 	"use strict";
 	init_CheckIgnore();
 } });
-var clone_exports = {};
-__export(clone_exports, {
-	cloneMirrorTask: () => cloneMirrorTask,
-	cloneTask: () => cloneTask
-});
-function disallowedCommand(command) {
-	return /^--upload-pack(=|$)/.test(command);
-}
-function cloneTask(repo, directory, customArgs) {
-	const commands = ["clone", ...customArgs];
-	filterString(repo) && commands.push(repo);
-	filterString(directory) && commands.push(directory);
-	if (commands.find(disallowedCommand)) return configurationErrorTask(`git.fetch: potential exploit argument blocked.`);
-	return straightThroughStringTask(commands);
-}
-function cloneMirrorTask(repo, directory, customArgs) {
-	append(customArgs, "--mirror");
-	return cloneTask(repo, directory, customArgs);
-}
-var init_clone = __esm({ "src/lib/tasks/clone.ts"() {
-	"use strict";
-	init_task();
-	init_utils();
-} });
 function parseFetchResult(stdOut, stdErr) {
 	return parseStringResponse({
 		raw: stdOut,
@@ -2709,13 +2770,13 @@ var init_parse_fetch = __esm({ "src/lib/parsers/parse-fetch.ts"() {
 } });
 var fetch_exports = {};
 __export(fetch_exports, { fetchTask: () => fetchTask });
-function disallowedCommand2(command) {
+function disallowedCommand(command) {
 	return /^--upload-pack(=|$)/.test(command);
 }
 function fetchTask(remote, branch, customArgs) {
 	const commands = ["fetch", ...customArgs];
 	if (remote && branch) commands.push(remote, branch);
-	if (commands.find(disallowedCommand2)) return configurationErrorTask(`git.fetch: potential exploit argument blocked.`);
+	if (commands.find(disallowedCommand)) return configurationErrorTask(`git.fetch: potential exploit argument blocked.`);
 	return {
 		commands,
 		format: "utf-8",
@@ -2926,7 +2987,8 @@ function toNumber(input) {
 	if (typeof input === "string") return parseInt(input.replace(/^\D+/g, ""), 10) || 0;
 	return 0;
 }
-var TagList, parseTagList;
+var TagList;
+var parseTagList;
 var init_TagList = __esm({ "src/lib/responses/TagList.ts"() {
 	"use strict";
 	TagList = class {
@@ -3004,13 +3066,12 @@ var require_git = __commonJS({ "src/git.js"(exports, module) {
 	var { GitExecutor: GitExecutor2 } = (init_git_executor(), __toCommonJS(git_executor_exports));
 	var { SimpleGitApi: SimpleGitApi2 } = (init_simple_git_api(), __toCommonJS(simple_git_api_exports));
 	var { Scheduler: Scheduler2 } = (init_scheduler(), __toCommonJS(scheduler_exports));
-	var { configurationErrorTask: configurationErrorTask2 } = (init_task(), __toCommonJS(task_exports));
+	var { adhocExecTask: adhocExecTask2, configurationErrorTask: configurationErrorTask2 } = (init_task(), __toCommonJS(task_exports));
 	var { asArray: asArray2, filterArray: filterArray2, filterPrimitives: filterPrimitives2, filterString: filterString2, filterStringOrStringArray: filterStringOrStringArray2, filterType: filterType2, getTrailingOptions: getTrailingOptions2, trailingFunctionArgument: trailingFunctionArgument2, trailingOptionsArgument: trailingOptionsArgument2 } = (init_utils(), __toCommonJS(utils_exports));
 	var { applyPatchTask: applyPatchTask2 } = (init_apply_patch(), __toCommonJS(apply_patch_exports));
 	var { branchTask: branchTask2, branchLocalTask: branchLocalTask2, deleteBranchesTask: deleteBranchesTask2, deleteBranchTask: deleteBranchTask2 } = (init_branch(), __toCommonJS(branch_exports));
 	var { checkIgnoreTask: checkIgnoreTask2 } = (init_check_ignore(), __toCommonJS(check_ignore_exports));
 	var { checkIsRepoTask: checkIsRepoTask2 } = (init_check_is_repo(), __toCommonJS(check_is_repo_exports));
-	var { cloneTask: cloneTask2, cloneMirrorTask: cloneMirrorTask2 } = (init_clone(), __toCommonJS(clone_exports));
 	var { cleanWithOptionsTask: cleanWithOptionsTask2, isCleanOptionsArray: isCleanOptionsArray2 } = (init_clean(), __toCommonJS(clean_exports));
 	var { diffSummaryTask: diffSummaryTask2 } = (init_diff(), __toCommonJS(diff_exports));
 	var { fetchTask: fetchTask2 } = (init_fetch(), __toCommonJS(fetch_exports));
@@ -3041,16 +3102,6 @@ var require_git = __commonJS({ "src/git.js"(exports, module) {
 	Git2.prototype.stashList = function(options) {
 		return this._runTask(stashListTask2(trailingOptionsArgument2(arguments) || {}, filterArray2(options) && options || []), trailingFunctionArgument2(arguments));
 	};
-	function createCloneTask(api, task, repoPath, localPath) {
-		if (typeof repoPath !== "string") return configurationErrorTask2(`git.${api}() requires a string 'repoPath'`);
-		return task(repoPath, filterType2(localPath, filterString2), getTrailingOptions2(arguments));
-	}
-	Git2.prototype.clone = function() {
-		return this._runTask(createCloneTask("clone", cloneTask2, ...arguments), trailingFunctionArgument2(arguments));
-	};
-	Git2.prototype.mirror = function() {
-		return this._runTask(createCloneTask("mirror", cloneMirrorTask2, ...arguments), trailingFunctionArgument2(arguments));
-	};
 	Git2.prototype.mv = function(from, to) {
 		return this._runTask(moveTask2(from, to), trailingFunctionArgument2(arguments));
 	};
@@ -3069,8 +3120,7 @@ var require_git = __commonJS({ "src/git.js"(exports, module) {
 		return this._runTask(fetchTask2(filterType2(remote, filterString2), filterType2(branch, filterString2), getTrailingOptions2(arguments)), trailingFunctionArgument2(arguments));
 	};
 	Git2.prototype.silent = function(silence) {
-		console.warn("simple-git deprecation notice: git.silent: logging should be configured using the `debug` library / `DEBUG` environment variable, this will be an error in version 3");
-		return this;
+		return this._runTask(adhocExecTask2(() => console.warn("simple-git deprecation notice: git.silent: logging should be configured using the `debug` library / `DEBUG` environment variable, this method will be removed.")));
 	};
 	Git2.prototype.tags = function(options, then) {
 		return this._runTask(tagListTask2(getTrailingOptions2(arguments)), trailingFunctionArgument2(arguments));
@@ -3220,7 +3270,7 @@ var require_git = __commonJS({ "src/git.js"(exports, module) {
 		});
 	};
 	Git2.prototype.clearQueue = function() {
-		return this;
+		return this._runTask(adhocExecTask2(() => console.warn("simple-git deprecation notice: clearQueue() is deprecated and will be removed, switch to using the abortPlugin instead.")));
 	};
 	Git2.prototype.checkIgnore = function(pathnames, then) {
 		return this._runTask(checkIgnoreTask2(asArray2(filterType2(pathnames, filterStringOrStringArray2, []))), trailingFunctionArgument2(arguments));
@@ -3230,7 +3280,6 @@ var require_git = __commonJS({ "src/git.js"(exports, module) {
 	};
 	module.exports = Git2;
 } });
-init_pathspec();
 init_git_error();
 var GitConstructError = class extends GitError {
 	constructor(config, message) {
@@ -3274,28 +3323,11 @@ function abortPlugin(signal) {
 		}
 	}];
 }
-function isConfigSwitch(arg) {
-	return typeof arg === "string" && arg.trim().toLowerCase() === "-c";
-}
-function preventProtocolOverride(arg, next) {
-	if (!isConfigSwitch(arg)) return;
-	if (!/^\s*protocol(.[a-z]+)?.allow/.test(next)) return;
-	throw new GitPluginError(void 0, "unsafe", "Configuring protocol.allow is not permitted without enabling allowUnsafeExtProtocol");
-}
-function preventUploadPack(arg, method) {
-	if (/^\s*--(upload|receive)-pack/.test(arg)) throw new GitPluginError(void 0, "unsafe", `Use of --upload-pack or --receive-pack is not permitted without enabling allowUnsafePack`);
-	if (method === "clone" && /^\s*-u\b/.test(arg)) throw new GitPluginError(void 0, "unsafe", `Use of clone with option -u is not permitted without enabling allowUnsafePack`);
-	if (method === "push" && /^\s*--exec\b/.test(arg)) throw new GitPluginError(void 0, "unsafe", `Use of push with option --exec is not permitted without enabling allowUnsafePack`);
-}
-function blockUnsafeOperationsPlugin({ allowUnsafeProtocolOverride = false, allowUnsafePack = false } = {}) {
+function blockUnsafeOperationsPlugin(options = {}) {
 	return {
 		type: "spawn.args",
-		action(args, context) {
-			args.forEach((current, index) => {
-				const next = index < args.length ? args[index + 1] : "";
-				allowUnsafeProtocolOverride || preventProtocolOverride(current, next);
-				allowUnsafePack || preventUploadPack(current, context.method);
-			});
+		action(args, { env }) {
+			for (const vulnerability of ne(args, env)) if (options[vulnerability.category] !== true) throw new GitPluginError(void 0, "unsafe", vulnerability.message);
 			return args;
 		}
 	};
@@ -3368,7 +3400,7 @@ init_utils();
 var WRONG_NUMBER_ERR = `Invalid value supplied for custom binary, requires a single string or an array containing either one or two strings`;
 var WRONG_CHARS_ERR = `Invalid value supplied for custom binary, restricted characters must be removed or supply the unsafe.allowUnsafeCustomBinary option`;
 function isBadArgument(arg) {
-	return !arg || !/^([a-z]:)?([a-z0-9/.\\_-]+)$/i.test(arg);
+	return !arg || !/^([a-z]:)?([a-z0-9/.\\_~-]+)$/i.test(arg);
 }
 function toBinaryConfig(input, allowUnsafe) {
 	if (input.length < 1 || input.length > 2) throw new GitPluginError(void 0, "binary", WRONG_NUMBER_ERR);
@@ -3530,7 +3562,6 @@ function timeoutPlugin({ block, stdErr = true, stdOut = true }) {
 		}
 	};
 }
-init_pathspec();
 function suffixPathsPlugin() {
 	return {
 		type: "spawn.args",
@@ -3542,12 +3573,12 @@ function suffixPathsPlugin() {
 			}
 			for (let i = 0; i < data.length; i++) {
 				const param = data[i];
-				if (isPathSpec(param)) {
-					append2(toPaths(param));
+				if (r(param)) {
+					append2(o(param));
 					continue;
 				}
 				if (param === "--") {
-					append2(data.slice(i + 1).flatMap((item) => isPathSpec(item) && toPaths(item) || item));
+					append2(data.slice(i + 1).flatMap((item) => r(item) && o(item) || item));
 					break;
 				}
 				prefix.push(param);
@@ -3568,12 +3599,12 @@ function gitInstanceFactory(baseDir, options) {
 	if (!folderExists(config.baseDir)) throw new GitConstructError(config, `Cannot use simple-git on a directory that does not exist`);
 	if (Array.isArray(config.config)) plugins.add(commandConfigPrefixingPlugin(config.config));
 	plugins.add(blockUnsafeOperationsPlugin(config.unsafe));
-	plugins.add(suffixPathsPlugin());
 	plugins.add(completionDetectionPlugin(config.completion));
 	config.abort && plugins.add(abortPlugin(config.abort));
 	config.progress && plugins.add(progressMonitorPlugin(config.progress));
 	config.timeout && plugins.add(timeoutPlugin(config.timeout));
 	config.spawnOptions && plugins.add(spawnOptionsPlugin(config.spawnOptions));
+	plugins.add(suffixPathsPlugin());
 	plugins.add(errorDetectionPlugin(errorDetectionHandler(true)));
 	config.errors && plugins.add(errorDetectionPlugin(config.errors));
 	customBinaryPlugin(plugins, config.binary, config.unsafe?.allowUnsafeCustomBinary);
@@ -3581,4 +3612,4 @@ function gitInstanceFactory(baseDir, options) {
 }
 init_git_response_error();
 var esm_default = gitInstanceFactory;
-export { esm_default as t };
+export { esm_default };

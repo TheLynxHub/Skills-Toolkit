@@ -1,29 +1,51 @@
 #!/usr/bin/env node
-import { r as __toESM } from "./_chunks/rolldown-runtime.mjs";
-import { l as pD, u as require_picocolors } from "./_chunks/libs/@clack/core.mjs";
-import { a as Y, c as ve, i as Se, l as xe, n as M, o as be, r as Me, s as fe, t as Ie, u as ye } from "./_chunks/libs/@clack/prompts.mjs";
-import "./_chunks/libs/@kwsites/file-exists.mjs";
-import "./_chunks/libs/@kwsites/promise-deferred.mjs";
-import { t as esm_default } from "./_chunks/libs/simple-git.mjs";
-import { t as xdgConfig } from "./_chunks/libs/xdg-basedir.mjs";
-import { t as require_dist } from "./_chunks/libs/@vercel/detect-agent.mjs";
+import { __toESM } from "./_chunks/rolldown-runtime.mjs";
+import { isCancel } from "./_chunks/libs/@clack/core.mjs";
+import { cancel, confirm, intro, log, multiselect, note, outro, select, spinner } from "./_chunks/libs/@clack/prompts.mjs";
+import { require_picocolors } from "./_chunks/libs/picocolors.mjs";
+import { esm_default } from "./_chunks/libs/simple-git.mjs";
+import { xdgConfig } from "./_chunks/libs/xdg-basedir.mjs";
+import { require_dist } from "./_chunks/libs/@vercel/detect-agent.mjs";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "fs";
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from "path";
 import { fileURLToPath } from "url";
-import { createHash } from "node:crypto";
 import { stripVTControlCharacters } from "node:util";
+import { createWriteStream } from "node:fs";
+import { dirname as dirname$1, join as join$1, normalize as normalize$1, resolve as resolve$1, sep as sep$1 } from "node:path";
 import { homedir, platform, tmpdir } from "os";
 import * as readline from "readline";
 import { Writable } from "stream";
 import { promisify } from "util";
-import { execFile, execSync, spawn, spawnSync } from "child_process";
-import { access, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "fs/promises";
+import { execFile, spawn, spawnSync } from "child_process";
+import { access, chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from "fs/promises";
 import { parse } from "yaml";
-import { createHash as createHash$1 } from "crypto";
-import { gunzipSync, inflateRawSync } from "node:zlib";
+import { createHash } from "crypto";
+import { mkdir as mkdir$1, mkdtemp as mkdtemp$1, readFile as readFile$1, rm as rm$1, stat as stat$1, writeFile as writeFile$1 } from "node:fs/promises";
+import { createHash as createHash$1 } from "node:crypto";
+import { crc32, gunzipSync, inflateRawSync } from "node:zlib";
+import { tmpdir as tmpdir$1 } from "node:os";
+import { pipeline } from "node:stream/promises";
+import * as tar from "tar";
+import { execFile as execFile$1 } from "node:child_process";
 var import_picocolors = /* @__PURE__ */ __toESM(require_picocolors(), 1);
+const DEFAULT_GITHUB_HOST = "github.com";
+function getGitHubHost() {
+	const configuredHost = process.env.GH_HOST?.trim();
+	if (!configuredHost) return DEFAULT_GITHUB_HOST;
+	try {
+		const parsed = new URL(`https://${configuredHost}`);
+		if (parsed.username || parsed.password || parsed.port || parsed.pathname !== "/" || parsed.search || parsed.hash) return DEFAULT_GITHUB_HOST;
+		return parsed.hostname;
+	} catch {
+		return DEFAULT_GITHUB_HOST;
+	}
+}
+function isGitHubHost(host) {
+	const normalizedHost = host.toLowerCase();
+	return normalizedHost === DEFAULT_GITHUB_HOST || normalizedHost === getGitHubHost().toLowerCase();
+}
 function getOwnerRepo(parsed) {
-	if (parsed.type === "local") return null;
+	if (parsed.type === "local" || parsed.type === "download") return null;
 	const sshMatch = parsed.url.match(/^git@[^:]+:(.+)$/);
 	if (sshMatch) {
 		let path = sshMatch[1];
@@ -72,7 +94,10 @@ function sanitizeSubpath(subpath) {
 function isLocalPath(input) {
 	return isAbsolute(input) || input.startsWith("./") || input.startsWith("../") || input === "." || input === ".." || /^[a-zA-Z]:[/\\]/.test(input);
 }
-const SOURCE_ALIASES = { "coinbase/agentWallet": "coinbase/agentic-wallet-skills" };
+const SOURCE_ALIASES = {
+	"coinbase/agentWallet": "coinbase/agentic-wallet-skills",
+	"vercel-labs/vercel-skills": "vercel-labs/agent-skills"
+};
 function decodeFragmentValue(value) {
 	try {
 		return decodeURIComponent(value);
@@ -86,7 +111,7 @@ function looksLikeGitSource(input) {
 	if (input.startsWith("http://") || input.startsWith("https://")) try {
 		const parsed = new URL(input);
 		const pathname = parsed.pathname;
-		if (parsed.hostname === "github.com") return /^\/[^/]+\/[^/]+(?:\.git)?(?:\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
+		if (isGitHubHost(parsed.host)) return /^\/[^/]+\/[^/]+(?:\.git)?(?:\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
 		if (parsed.hostname === "gitlab.com") return /^\/.+?\/[^/]+(?:\.git)?(?:\/-\/tree\/[^/]+(?:\/.*)?)?\/?$/.test(pathname);
 	} catch {}
 	if (/^https?:\/\/.+\.git(?:$|[/?])/i.test(input)) return true;
@@ -115,6 +140,18 @@ function appendFragmentRef(input, ref, skillFilter) {
 	if (!ref) return input;
 	return `${input}#${ref}${skillFilter ? `@${skillFilter}` : ""}`;
 }
+function isHostedArtifactUrl(input) {
+	try {
+		const parsed = new URL(input);
+		const host = parsed.hostname.toLowerCase();
+		if (host === "raw.githubusercontent.com" || host === "codeload.github.com" || host === "objects.githubusercontent.com") return true;
+		if (host === "github.com") return /^\/[^/]+\/[^/]+\/(?:archive\/|raw\/|releases\/(?:download\/|latest\/download\/))/.test(parsed.pathname);
+		if (host === "gitlab.com") return /\/-\/(?:archive|raw)\//.test(parsed.pathname);
+		return false;
+	} catch {
+		return false;
+	}
+}
 function parseSource(input) {
 	if (isLocalPath(input)) {
 		const resolvedPath = resolve(input);
@@ -132,6 +169,26 @@ function parseSource(input) {
 	if (githubPrefixMatch) return parseSource(appendFragmentRef(githubPrefixMatch[1], fragmentRef, fragmentSkillFilter));
 	const gitlabPrefixMatch = input.match(/^gitlab:(.+)$/);
 	if (gitlabPrefixMatch) return parseSource(appendFragmentRef(`https://gitlab.com/${gitlabPrefixMatch[1]}`, fragmentRef, fragmentSkillFilter));
+	if (isHostedArtifactUrl(input)) return {
+		type: "download",
+		url: input
+	};
+	if (getGitHubHost() !== "github.com" && /^https?:\/\//.test(input)) try {
+		const parsedUrl = new URL(input);
+		if (isGitHubHost(parsedUrl.host) && parsedUrl.host !== "github.com") {
+			const [owner, rawRepo, marker, ref, ...subpathSegments] = parsedUrl.pathname.split("/").filter(Boolean);
+			if (owner && rawRepo) {
+				const repo = rawRepo.replace(/\.git$/, "");
+				const isTreeUrl = marker === "tree" && ref;
+				return {
+					type: "git",
+					url: `${parsedUrl.protocol}//${parsedUrl.host}/${owner}/${repo}.git`,
+					...isTreeUrl ? { ref } : fragmentRef ? { ref: fragmentRef } : {},
+					...isTreeUrl && subpathSegments.length > 0 ? { subpath: sanitizeSubpath(subpathSegments.join("/")) } : {}
+				};
+			}
+		}
+	} catch {}
 	const githubTreeWithPathMatch = input.match(/github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/(.+)/);
 	if (githubTreeWithPathMatch) {
 		const [, owner, repo, ref, subpath] = githubTreeWithPathMatch;
@@ -188,12 +245,14 @@ function parseSource(input) {
 			...fragmentRef ? { ref: fragmentRef } : {}
 		};
 	}
+	const githubHost = getGitHubHost();
+	const shorthandSourceType = githubHost === "github.com" ? "github" : "git";
 	const atSkillMatch = input.match(/^([^/]+)\/([^/@]+)@(.+)$/);
 	if (atSkillMatch && !input.includes(":") && !input.startsWith(".") && !input.startsWith("/")) {
 		const [, owner, repo, skillFilter] = atSkillMatch;
 		return {
-			type: "github",
-			url: `https://github.com/${owner}/${repo}.git`,
+			type: shorthandSourceType,
+			url: `https://${githubHost}/${owner}/${repo}.git`,
 			...fragmentRef ? { ref: fragmentRef } : {},
 			skillFilter: fragmentSkillFilter || skillFilter
 		};
@@ -202,8 +261,8 @@ function parseSource(input) {
 	if (shorthandMatch && !input.includes(":") && !input.startsWith(".") && !input.startsWith("/")) {
 		const [, owner, repo, subpath] = shorthandMatch;
 		return {
-			type: "github",
-			url: `https://github.com/${owner}/${repo}.git`,
+			type: shorthandSourceType,
+			url: `https://${githubHost}/${owner}/${repo}.git`,
 			...fragmentRef ? { ref: fragmentRef } : {},
 			subpath: subpath ? sanitizeSubpath(subpath) : subpath,
 			...fragmentSkillFilter ? { skillFilter: fragmentSkillFilter } : {}
@@ -278,8 +337,99 @@ function countVisualRowsForLines(lines, columns) {
 	const cols = columns !== void 0 && columns > 0 ? columns : process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
 	return lines.reduce((sum, line) => sum + visualRowsForLine(line, cols), 0);
 }
+function truncateToWidth(text, width) {
+	let truncated = "";
+	for (const char of text) {
+		if (approxStringWidth(truncated + char) > width) break;
+		truncated += char;
+	}
+	return truncated;
+}
+function formatDetailLines(detail, width, maxLines) {
+	const safeWidth = Math.max(1, width);
+	const normalized = detail?.replace(/\s+/g, " ").trim() ?? "";
+	const lines = [];
+	let remaining = normalized;
+	while (remaining && lines.length < maxLines) {
+		if (approxStringWidth(remaining) <= safeWidth) {
+			lines.push(remaining);
+			remaining = "";
+			break;
+		}
+		const candidate = truncateToWidth(remaining, safeWidth);
+		const breakAt = candidate.lastIndexOf(" ");
+		if (breakAt > 0) {
+			lines.push(candidate.slice(0, breakAt).trimEnd());
+			remaining = remaining.slice(breakAt).trimStart();
+		} else {
+			lines.push(candidate);
+			remaining = remaining.slice(candidate.length).trimStart();
+		}
+	}
+	if (remaining && lines.length > 0) {
+		const last = lines.length - 1;
+		lines[last] = `${truncateToWidth(lines[last], Math.max(0, safeWidth - 1)).trimEnd()}…`;
+	}
+	while (lines.length < maxLines) lines.push("");
+	return lines;
+}
+function buildSearchEntries(items, selectGroups, collapsedGroups = /* @__PURE__ */ new Set()) {
+	if (!selectGroups) return items.map((item) => ({
+		type: "item",
+		item
+	}));
+	const entries = [];
+	let index = 0;
+	while (index < items.length) {
+		const item = items[index];
+		if (!item.group) {
+			entries.push({
+				type: "item",
+				item
+			});
+			index += 1;
+			continue;
+		}
+		const groupItems = [];
+		while (index < items.length && items[index].group === item.group) {
+			groupItems.push(items[index]);
+			index += 1;
+		}
+		const collapsed = collapsedGroups.has(item.group);
+		entries.push({
+			type: "group",
+			group: item.group,
+			items: groupItems,
+			collapsed
+		});
+		if (!collapsed) entries.push(...groupItems.map((groupItem) => ({
+			type: "item",
+			item: groupItem
+		})));
+	}
+	return entries;
+}
+function toggleSearchEntry(selected, entry) {
+	if (entry?.type === "group") {
+		const allSelected = entry.items.every((item) => selected.has(item.value));
+		for (const item of entry.items) if (allSelected) selected.delete(item.value);
+		else selected.add(item.value);
+	} else if (entry?.type === "item") if (selected.has(entry.item.value)) selected.delete(entry.item.value);
+	else selected.add(entry.item.value);
+}
+function getSelectAllState(selected, items) {
+	const selectedCount = items.filter((item) => selected.has(item.value)).length;
+	if (selectedCount === 0) return "none";
+	if (selectedCount === items.length) return "all";
+	return "partial";
+}
+function toggleAllItems(selected, items) {
+	const shouldClear = getSelectAllState(selected, items) === "all";
+	for (const item of items) if (shouldClear) selected.delete(item.value);
+	else selected.add(item.value);
+}
 async function searchMultiselect(options) {
-	const { message, items, maxVisible = 8, initialSelected = [], required = false, lockedSection } = options;
+	const { message, items, maxVisible = 8, initialSelected = [], required = false, lockedSection, searchable = true, showDetail = false, detailLines = 2, showSelectedSummary = true, selectGroups = false, selectAll = false } = options;
 	return new Promise((resolve) => {
 		const rl = readline.createInterface({
 			input: process.stdin,
@@ -291,6 +441,7 @@ async function searchMultiselect(options) {
 		let query = "";
 		let cursor = 0;
 		const selected = new Set(initialSelected);
+		const collapsedGroups = /* @__PURE__ */ new Set();
 		let lastRenderHeight = 0;
 		const lockedValues = lockedSection ? lockedSection.items.map((i) => i.value) : [];
 		const filter = (item, q) => {
@@ -301,17 +452,12 @@ async function searchMultiselect(options) {
 		const getFiltered = () => {
 			return items.filter((item) => filter(item, query));
 		};
-		const clearRender = () => {
-			if (lastRenderHeight > 0) {
-				process.stdout.write(`\x1b[${lastRenderHeight}A`);
-				for (let i = 0; i < lastRenderHeight; i++) process.stdout.write("\x1B[2K\x1B[1B");
-				process.stdout.write(`\x1b[${lastRenderHeight}A`);
-			}
-		};
 		const render = (state = "active") => {
-			clearRender();
 			const lines = [];
 			const filtered = getFiltered();
+			const entries = buildSearchEntries(filtered, selectGroups, collapsedGroups);
+			const hasSelectAll = selectAll && items.length > 0;
+			const entryCursor = cursor - (hasSelectAll ? 1 : 0);
 			const icon = state === "active" ? S_STEP_ACTIVE : state === "cancel" ? S_STEP_CANCEL : S_STEP_SUBMIT;
 			lines.push(`${icon}  ${import_picocolors.default.bold(message)}`);
 			if (state === "active") {
@@ -320,52 +466,135 @@ async function searchMultiselect(options) {
 					const lockedTitle = `${import_picocolors.default.bold(lockedSection.title)} ${import_picocolors.default.dim("── always included")}`;
 					lines.push(`${S_BAR}  ${S_BAR_H}${S_BAR_H} ${lockedTitle} ${S_BAR_H.repeat(12)}`);
 					for (const item of lockedSection.items) lines.push(`${S_BAR}    ${S_BULLET} ${import_picocolors.default.bold(item.label)}`);
-					if (lockedSection.hiddenCount && lockedSection.hiddenCount > 0) lines.push(`${S_BAR}    ${import_picocolors.default.dim(`...and ${lockedSection.hiddenCount} more`)}`);
+					if (lockedSection.hiddenCount && lockedSection.hiddenCount > 0) lines.push(`${S_BAR}    ${import_picocolors.default.dim(`…and ${lockedSection.hiddenCount} more`)}`);
 					lines.push(`${S_BAR}`);
 					lines.push(`${S_BAR}  ${S_BAR_H}${S_BAR_H} ${import_picocolors.default.bold("Additional agents")} ${S_BAR_H.repeat(29)}`);
 				}
-				const searchLine = `${S_BAR}  ${import_picocolors.default.dim("Search:")} ${query}${import_picocolors.default.inverse(" ")}`;
-				lines.push(searchLine);
-				lines.push(`${S_BAR}  ${import_picocolors.default.dim("↑↓ move, space select, enter confirm")}`);
-				lines.push(`${S_BAR}`);
-				const visibleStart = Math.max(0, Math.min(cursor - Math.floor(maxVisible / 2), filtered.length - maxVisible));
-				const visibleEnd = Math.min(filtered.length, visibleStart + maxVisible);
-				const visibleItems = filtered.slice(visibleStart, visibleEnd);
-				if (filtered.length === 0) lines.push(`${S_BAR}  ${import_picocolors.default.dim("No matches found")}`);
-				else {
-					for (let i = 0; i < visibleItems.length; i++) {
-						const item = visibleItems[i];
-						const actualIndex = visibleStart + i;
-						const isSelected = selected.has(item.value);
-						const isCursor = actualIndex === cursor;
-						const radio = isSelected ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
+				if (searchable) {
+					const searchLine = `${S_BAR}  ${import_picocolors.default.dim("Search:")} ${query}${import_picocolors.default.inverse(" ")}`;
+					lines.push(searchLine);
+					lines.push(`${S_BAR}  ${import_picocolors.default.dim("↑↓ move, space select, enter confirm")}`);
+					lines.push(`${S_BAR}`);
+				}
+				if (hasSelectAll) {
+					const selectedCount = items.filter((item) => selected.has(item.value)).length;
+					const selectAllState = getSelectAllState(selected, items);
+					const radio = selectAllState === "all" ? S_RADIO_ACTIVE : selectAllState === "partial" ? import_picocolors.default.yellow("◐") : S_RADIO_INACTIVE;
+					const isCursor = cursor === 0;
+					const prefix = isCursor ? import_picocolors.default.cyan("❯") : " ";
+					const label = isCursor ? import_picocolors.default.underline(import_picocolors.default.bold("Select All")) : import_picocolors.default.bold("Select All");
+					lines.push(`${S_BAR} ${prefix} ${radio} ${label} ${import_picocolors.default.dim(`(${selectedCount}/${items.length})`)}`);
+					lines.push(`${S_BAR}   ${S_BAR_H.repeat(36)}`);
+				}
+				const columns = process.stdout.columns && process.stdout.columns > 0 ? process.stdout.columns : 80;
+				const buildFooterLines = (includeDetail, includeSelectedSummary) => {
+					const footerLines = [];
+					if (includeDetail) {
+						const entry = entries[entryCursor];
+						const detail = hasSelectAll && cursor === 0 ? `Select or clear all ${items.length} skills.` : entry?.type === "group" ? `Select all ${entry.items.length} skills in ${entry.group}.` : entry?.item.detail;
+						const detailWidth = Math.max(1, columns - 5);
+						footerLines.push(`${S_BAR}`);
+						footerLines.push(`${S_BAR}  ${import_picocolors.default.dim("Description")}`);
+						for (const line of formatDetailLines(detail, detailWidth, detailLines)) footerLines.push(`${S_BAR}  ${import_picocolors.default.dim(line)}`);
+					}
+					if (includeSelectedSummary) {
+						footerLines.push(`${S_BAR}`);
+						const allSelectedLabels = [...lockedSection ? lockedSection.items.map((i) => i.label) : [], ...items.filter((item) => selected.has(item.value)).map((item) => item.label)];
+						if (allSelectedLabels.length === 0) footerLines.push(`${S_BAR}  ${import_picocolors.default.dim("Selected: (none)")}`);
+						else {
+							const summary = allSelectedLabels.length <= 3 ? allSelectedLabels.join(", ") : `${allSelectedLabels.slice(0, 3).join(", ")} +${allSelectedLabels.length - 3} more`;
+							footerLines.push(`${S_BAR}  ${import_picocolors.default.green("Selected:")} ${summary}`);
+						}
+					}
+					if (!searchable) {
+						footerLines.push(`${S_BAR}`);
+						footerLines.push(`${S_BAR}  ${import_picocolors.default.dim("↑↓ move, ←→ collapse/expand, space select, enter confirm")}`);
+					}
+					footerLines.push(`${import_picocolors.default.dim("└")}`);
+					return footerLines;
+				};
+				const buildItemLines = (visibleLimit) => {
+					if (filtered.length === 0) return [`${S_BAR}  ${import_picocolors.default.dim("No matches found")}`];
+					const itemLines = [];
+					const visibleStart = Math.max(0, Math.min(entryCursor - Math.floor(visibleLimit / 2), entries.length - visibleLimit));
+					const visibleEnd = Math.min(entries.length, visibleStart + visibleLimit);
+					const visibleEntries = entries.slice(visibleStart, visibleEnd);
+					for (let i = 0; i < visibleEntries.length; i++) {
+						const entry = visibleEntries[i];
+						const isCursor = visibleStart + i === entryCursor;
+						if (entry.type === "group") {
+							const selectedCount = entry.items.filter((item) => selected.has(item.value)).length;
+							const radio = selectedCount === entry.items.length ? S_RADIO_ACTIVE : selectedCount > 0 ? import_picocolors.default.yellow("◐") : S_RADIO_INACTIVE;
+							const label = isCursor ? import_picocolors.default.underline(import_picocolors.default.bold(entry.group)) : import_picocolors.default.bold(entry.group);
+							const prefix = isCursor ? import_picocolors.default.cyan("❯") : " ";
+							const disclosure = import_picocolors.default.dim(entry.collapsed ? "▸" : "▾");
+							itemLines.push(`${S_BAR} ${prefix} ${disclosure} ${radio} ${label}`);
+							continue;
+						}
+						const item = entry.item;
+						const radio = selected.has(item.value) ? S_RADIO_ACTIVE : S_RADIO_INACTIVE;
 						const label = isCursor ? import_picocolors.default.underline(item.label) : item.label;
 						const hint = item.hint ? import_picocolors.default.dim(` (${item.hint})`) : "";
 						const prefix = isCursor ? import_picocolors.default.cyan("❯") : " ";
-						lines.push(`${S_BAR} ${prefix} ${radio} ${label}${hint}`);
+						const groupItems = selectGroups && item.group ? filtered.filter((i) => i.group === item.group) : [];
+						const isLastInGroup = groupItems.at(-1) === item;
+						const tree = groupItems.length > 0 ? `${import_picocolors.default.dim(isLastInGroup ? "└─" : "├─")} ` : "";
+						itemLines.push(`${S_BAR} ${prefix} ${tree}${radio} ${label}${hint}`);
 					}
 					const hiddenBefore = visibleStart;
-					const hiddenAfter = filtered.length - visibleEnd;
+					const hiddenAfter = entries.length - visibleEnd;
 					if (hiddenBefore > 0 || hiddenAfter > 0) {
 						const parts = [];
 						if (hiddenBefore > 0) parts.push(`↑ ${hiddenBefore} more`);
 						if (hiddenAfter > 0) parts.push(`↓ ${hiddenAfter} more`);
-						lines.push(`${S_BAR}  ${import_picocolors.default.dim(parts.join("  "))}`);
+						itemLines.push(`${S_BAR}  ${import_picocolors.default.dim(parts.join("  "))}`);
 					}
+					return itemLines;
+				};
+				const terminalRows = process.stdout.rows && process.stdout.rows > 0 ? process.stdout.rows : void 0;
+				const maxFrameRows = terminalRows ? Math.max(1, terminalRows - 1) : void 0;
+				const fitFrame = (includeDetail, includeSelectedSummary) => {
+					const footerLines = buildFooterLines(includeDetail, includeSelectedSummary);
+					let visibleLimit = Math.max(1, maxVisible);
+					let itemLines = buildItemLines(visibleLimit);
+					let frameRows = countVisualRowsForLines([
+						...lines,
+						...itemLines,
+						...footerLines
+					], columns);
+					while (maxFrameRows && frameRows > maxFrameRows && visibleLimit > 1) {
+						visibleLimit -= 1;
+						itemLines = buildItemLines(visibleLimit);
+						frameRows = countVisualRowsForLines([
+							...lines,
+							...itemLines,
+							...footerLines
+						], columns);
+					}
+					return {
+						itemLines,
+						footerLines,
+						frameRows
+					};
+				};
+				let includeDetail = showDetail;
+				let includeSelectedSummary = showSelectedSummary;
+				let fitted = fitFrame(includeDetail, includeSelectedSummary);
+				if (maxFrameRows && fitted.frameRows > maxFrameRows && includeDetail) {
+					includeDetail = false;
+					fitted = fitFrame(includeDetail, includeSelectedSummary);
 				}
-				lines.push(`${S_BAR}`);
-				const allSelectedLabels = [...lockedSection ? lockedSection.items.map((i) => i.label) : [], ...items.filter((item) => selected.has(item.value)).map((item) => item.label)];
-				if (allSelectedLabels.length === 0) lines.push(`${S_BAR}  ${import_picocolors.default.dim("Selected: (none)")}`);
-				else {
-					const summary = allSelectedLabels.length <= 3 ? allSelectedLabels.join(", ") : `${allSelectedLabels.slice(0, 3).join(", ")} +${allSelectedLabels.length - 3} more`;
-					lines.push(`${S_BAR}  ${import_picocolors.default.green("Selected:")} ${summary}`);
+				if (maxFrameRows && fitted.frameRows > maxFrameRows && includeSelectedSummary) {
+					includeSelectedSummary = false;
+					fitted = fitFrame(includeDetail, includeSelectedSummary);
 				}
-				lines.push(`${import_picocolors.default.dim("└")}`);
+				lines.push(...fitted.itemLines, ...fitted.footerLines);
 			} else if (state === "submit") {
 				const allSelectedLabels = [...lockedSection ? lockedSection.items.map((i) => i.label) : [], ...items.filter((item) => selected.has(item.value)).map((item) => item.label)];
 				lines.push(`${S_BAR}  ${import_picocolors.default.dim(allSelectedLabels.join(", "))}`);
 			} else if (state === "cancel") lines.push(`${S_BAR}  ${import_picocolors.default.strikethrough(import_picocolors.default.dim("Cancelled"))}`);
-			process.stdout.write(lines.join("\n") + "\n");
+			const clearPreviousFrame = lastRenderHeight > 0 ? `\x1b[${lastRenderHeight}A\x1b[J` : "";
+			process.stdout.write(clearPreviousFrame + lines.join("\n") + "\n");
 			lastRenderHeight = countVisualRowsForLines(lines, process.stdout.columns);
 		};
 		const cleanup = () => {
@@ -386,7 +615,10 @@ async function searchMultiselect(options) {
 		};
 		const keypressHandler = (_str, key) => {
 			if (!key) return;
-			const filtered = getFiltered();
+			const entries = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups);
+			const hasSelectAll = selectAll && items.length > 0;
+			const cursorOffset = hasSelectAll ? 1 : 0;
+			const entry = entries[cursor - cursorOffset];
 			if (key.name === "return") {
 				submit();
 				return;
@@ -401,14 +633,29 @@ async function searchMultiselect(options) {
 				return;
 			}
 			if (key.name === "down") {
-				cursor = Math.min(filtered.length - 1, cursor + 1);
+				cursor = Math.min(entries.length + cursorOffset - 1, cursor + 1);
 				render();
 				return;
 			}
+			if (selectGroups && key.name === "right") {
+				if (entry?.type === "group" && entry.collapsed) {
+					collapsedGroups.delete(entry.group);
+					render();
+				}
+				return;
+			}
+			if (selectGroups && key.name === "left") {
+				const group = entry?.type === "group" ? entry.group : entry?.item.group;
+				if (group) {
+					collapsedGroups.add(group);
+					cursor = buildSearchEntries(getFiltered(), selectGroups, collapsedGroups).findIndex((collapsedEntry) => collapsedEntry.type === "group" && collapsedEntry.group === group) + cursorOffset;
+					render();
+				}
+				return;
+			}
 			if (key.name === "space") {
-				const item = filtered[cursor];
-				if (item) if (selected.has(item.value)) selected.delete(item.value);
-				else selected.add(item.value);
+				if (hasSelectAll && cursor === 0) toggleAllItems(selected, items);
+				else toggleSearchEntry(selected, entry);
 				render();
 				return;
 			}
@@ -418,7 +665,7 @@ async function searchMultiselect(options) {
 				render();
 				return;
 			}
-			if (key.sequence && !key.ctrl && !key.meta && key.sequence.length === 1) {
+			if (searchable && key.sequence && !key.ctrl && !key.meta && key.sequence.length === 1) {
 				query += key.sequence;
 				cursor = 0;
 				render();
@@ -430,6 +677,7 @@ async function searchMultiselect(options) {
 	});
 }
 const DEFAULT_CLONE_TIMEOUT_MS = 3e5;
+const ALLOWED_GIT_PROTOCOLS = "https:http:ssh:git:file";
 const CLONE_TIMEOUT_MS = (() => {
 	const raw = process.env.SKILLS_CLONE_TIMEOUT_MS;
 	if (!raw) return DEFAULT_CLONE_TIMEOUT_MS;
@@ -450,20 +698,21 @@ var GitCloneError = class extends Error {
 	}
 };
 function parseGitHubRepoUrl(url) {
-	const sshMatch = url.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
-	if (sshMatch) {
-		const owner = sshMatch[1];
-		const repo = sshMatch[2];
+	const sshMatch = url.match(/^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?$/i);
+	if (sshMatch && isGitHubHost(sshMatch[1])) {
+		const host = sshMatch[1];
+		const owner = sshMatch[2];
+		const repo = sshMatch[3];
 		return {
 			owner,
 			repo,
 			slug: `${owner}/${repo}`,
-			sshUrl: `git@github.com:${owner}/${repo}.git`
+			sshUrl: `git@${host}:${owner}/${repo}.git`
 		};
 	}
 	try {
 		const parsed = new URL(url);
-		if (parsed.hostname !== "github.com") return null;
+		if (!isGitHubHost(parsed.host)) return null;
 		const match = parsed.pathname.match(/^\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
 		if (!match) return null;
 		const owner = match[1];
@@ -472,7 +721,7 @@ function parseGitHubRepoUrl(url) {
 			owner,
 			repo,
 			slug: `${owner}/${repo}`,
-			sshUrl: `git@github.com:${owner}/${repo}.git`
+			sshUrl: `git@${parsed.host}:${owner}/${repo}.git`
 		};
 	} catch {
 		return null;
@@ -481,7 +730,7 @@ function parseGitHubRepoUrl(url) {
 function isGitHubHttpsCloneUrl(url) {
 	try {
 		const parsed = new URL(url);
-		return parsed.protocol === "https:" && parsed.hostname === "github.com";
+		return parsed.protocol === "https:" && isGitHubHost(parsed.host);
 	} catch {
 		return false;
 	}
@@ -493,22 +742,45 @@ function isGitHubSsoAuthError(message) {
 function isAuthFailure(message) {
 	return message.includes("Authentication failed") || message.includes("could not read Username") || message.includes("Permission denied") || message.includes("Repository not found") || message.includes("requested URL returned error: 403") || isGitHubSsoAuthError(message);
 }
-function createGitClient(extraEnv) {
-	return esm_default({
+function createGitClient(sshCommand) {
+	const git = esm_default({
 		timeout: { block: CLONE_TIMEOUT_MS },
-		env: {
-			...process.env,
-			GIT_TERMINAL_PROMPT: "0",
-			GIT_LFS_SKIP_SMUDGE: "1",
-			...extraEnv
-		},
 		config: [
 			"filter.lfs.required=false",
 			"filter.lfs.smudge=",
 			"filter.lfs.clean=",
 			"filter.lfs.process="
-		]
+		],
+		unsafe: {
+			allowUnsafeAlias: true,
+			allowUnsafeAskPass: true,
+			allowUnsafeConfigEnvCount: true,
+			allowUnsafeConfigPaths: true,
+			allowUnsafeCredentialHelper: true,
+			allowUnsafeDiffExternal: true,
+			allowUnsafeDiffTextConv: true,
+			allowUnsafeEditor: true,
+			allowUnsafeFilter: true,
+			allowUnsafeFsMonitor: true,
+			allowUnsafeGpgProgram: true,
+			allowUnsafeGitProxy: true,
+			allowUnsafeHooksPath: true,
+			allowUnsafeMergeDriver: true,
+			allowUnsafePack: true,
+			allowUnsafePager: true,
+			allowUnsafeProtocolOverride: true,
+			allowUnsafeSshCommand: true,
+			allowUnsafeTemplateDir: true
+		}
 	});
+	git.env({
+		...process.env,
+		GIT_TERMINAL_PROMPT: "0",
+		GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS,
+		GIT_LFS_SKIP_SMUDGE: "1",
+		...sshCommand ? { GIT_SSH_COMMAND: sshCommand } : {}
+	});
+	return git;
 }
 async function resetTempDir(dir) {
 	await rm(dir, {
@@ -519,12 +791,13 @@ async function resetTempDir(dir) {
 }
 async function tryGhClone(repo, tempDir, ref) {
 	let cloneTarget = repo.slug;
+	const host = repo.sshUrl.match(/^git@([^:]+):/)?.[1] || "github.com";
 	try {
 		const { stdout, stderr } = await execFileAsync("gh", [
 			"auth",
 			"status",
 			"-h",
-			"github.com"
+			host
 		], {
 			timeout: 5e3,
 			env: {
@@ -552,17 +825,20 @@ async function tryGhClone(repo, tempDir, ref) {
 		timeout: CLONE_TIMEOUT_MS,
 		env: {
 			...process.env,
-			GIT_TERMINAL_PROMPT: "0"
+			GIT_TERMINAL_PROMPT: "0",
+			GIT_ALLOW_PROTOCOL: ALLOWED_GIT_PROTOCOLS
 		}
 	});
 	return true;
 }
 function buildGitHubAuthError(url, repo, message) {
-	if (repo && isGitHubSsoAuthError(message)) return `GitHub blocked HTTPS access to ${url} because the organization enforces SAML SSO.\n  skills tried your existing git credentials and available fallbacks, but none succeeded.\n  - Re-authorize your GitHub credentials/app for that org's SSO policy\n  - Or rerun with SSH: npx skills add ${repo.sshUrl}\n  - Verify access with: gh auth status -h github.com or ssh -T git@github.com`;
-	if (repo) return `Authentication failed for ${url}.\n  - For private repos, ensure you have access\n  - Retry with SSH: npx skills add ${repo.sshUrl}\n  - Check access with: gh auth status -h github.com or ssh -T git@github.com`;
+	const host = repo?.sshUrl.match(/^git@([^:]+):/)?.[1] || "github.com";
+	if (repo && isGitHubSsoAuthError(message)) return `GitHub blocked HTTPS access to ${url} because the organization enforces SAML SSO.\n  skills tried your existing git credentials and available fallbacks, but none succeeded.\n  - Re-authorize your GitHub credentials/app for that org's SSO policy\n  - Or rerun with SSH: npx skills add ${repo.sshUrl}\n  - Verify access with: gh auth status -h ${host} or ssh -T git@${host}`;
+	if (repo) return `Authentication failed for ${url}.\n  - For private repos, ensure you have access\n  - Retry with SSH: npx skills add ${repo.sshUrl}\n  - Check access with: gh auth status -h ${host} or ssh -T git@${host}`;
 	return `Authentication failed for ${url}.\n  - For private repos, ensure you have access\n  - For SSH: Check your keys with 'ssh -T git@github.com'\n  - For HTTPS: Run 'gh auth login' or configure git credentials`;
 }
 async function cloneRepo(url, ref) {
+	if (/^ext::/i.test(url)) throw new GitCloneError("Unsupported Git transport: ext", url);
 	const tempDir = await mkdtemp(join(tmpdir(), "skills-"));
 	const cloneOptions = ref ? [
 		"--depth",
@@ -592,7 +868,7 @@ async function cloneRepo(url, ref) {
 			} catch {}
 			try {
 				await resetTempDir(tempDir);
-				await createGitClient({ GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND ?? "ssh -o BatchMode=yes" }).clone(repo.sshUrl, tempDir, cloneOptions);
+				await createGitClient(process.env.GIT_SSH_COMMAND ?? "ssh -o BatchMode=yes").clone(repo.sshUrl, tempDir, cloneOptions);
 				return tempDir;
 			} catch {}
 		}
@@ -602,6 +878,38 @@ async function cloneRepo(url, ref) {
 		}).catch(() => {});
 		if (isAuthError) throw new GitCloneError(buildGitHubAuthError(url, repo, errorMessage), url, false, true);
 		throw new GitCloneError(`Failed to clone ${url}: ${errorMessage}`, url, false, false);
+	}
+}
+async function getGitTreeHash(repoDir, skillPath) {
+	const segments = skillPath.replace(/\\/g, "/").split("/");
+	segments.pop();
+	const folderPath = segments.join("/");
+	const revision = folderPath ? `HEAD:${folderPath}` : "HEAD^{tree}";
+	try {
+		const hash = (await new Promise((resolve, reject) => {
+			execFile("git", [
+				"-C",
+				repoDir,
+				"rev-parse",
+				"--verify",
+				"--end-of-options",
+				revision
+			], {
+				encoding: "utf8",
+				timeout: CLONE_TIMEOUT_MS,
+				env: {
+					...process.env,
+					GIT_OPTIONAL_LOCKS: "0",
+					GIT_TERMINAL_PROMPT: "0"
+				}
+			}, (error, output) => {
+				if (error) reject(error);
+				else resolve(output);
+			});
+		})).trim();
+		return /^[0-9a-f]{40}$/i.test(hash) ? hash.toLowerCase() : null;
+	} catch {
+		return null;
 	}
 }
 async function cleanupTempDir(dir) {
@@ -695,32 +1003,50 @@ function getLocalLockPath(cwd) {
 	return join(cwd || process.cwd(), LOCAL_LOCK_FILE);
 }
 async function readLocalLock(cwd) {
-	const lockPath = getLocalLockPath(cwd);
+	const lockDir = cwd || process.cwd();
+	const lockPath = getLocalLockPath(lockDir);
 	try {
 		const content = await readFile(lockPath, "utf-8");
 		const parsed = JSON.parse(content);
 		if (typeof parsed.version !== "number" || !parsed.skills) return createEmptyLocalLock();
 		if (parsed.version < CURRENT_VERSION$1) return createEmptyLocalLock();
+		for (const entry of Object.values(parsed.skills)) if (entry.sourceType === "local" && !isAbsolute(entry.source)) entry.source = resolve(lockDir, entry.source);
 		return parsed;
 	} catch {
 		return createEmptyLocalLock();
 	}
 }
 async function writeLocalLock(lock, cwd) {
-	const lockPath = getLocalLockPath(cwd);
+	const lockDir = cwd || process.cwd();
+	const lockPath = getLocalLockPath(lockDir);
 	const sortedSkills = {};
-	for (const key of Object.keys(lock.skills).sort()) sortedSkills[key] = lock.skills[key];
+	for (const key of Object.keys(lock.skills).sort()) {
+		const entry = lock.skills[key];
+		sortedSkills[key] = entry.sourceType === "local" ? {
+			...entry,
+			source: getPortableLocalSource(entry.source, lockDir)
+		} : entry;
+	}
 	const sorted = {
 		version: lock.version,
 		skills: sortedSkills
 	};
 	await writeFile(lockPath, JSON.stringify(sorted, null, 2) + "\n", "utf-8");
 }
+function getPortableLocalSource(source, lockDir) {
+	const absoluteSource = isAbsolute(source) ? source : resolve(lockDir, source);
+	const relativeSource = relative(lockDir, absoluteSource);
+	if (isAbsolute(relativeSource)) return absoluteSource.split(sep).join("/");
+	const portableSource = relativeSource.split(sep).join("/");
+	if (!portableSource) return ".";
+	if (portableSource === ".." || portableSource.startsWith("../")) return portableSource;
+	return `./${portableSource}`;
+}
 async function computeSkillFolderHash(skillDir) {
 	const files = [];
 	await collectFiles(skillDir, skillDir, files);
 	files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-	const hash = createHash$1("sha256");
+	const hash = createHash("sha256");
 	for (const file of files) {
 		hash.update(file.relativePath);
 		hash.update(file.content);
@@ -749,12 +1075,21 @@ async function addSkillToLocalLock(skillName, entry, cwd) {
 	lock.skills[skillName] = entry;
 	await writeLocalLock(lock, cwd);
 }
+async function removeSkillFromLocalLock(skillName, cwd) {
+	const lock = await readLocalLock(cwd);
+	if (!(skillName in lock.skills)) return false;
+	delete lock.skills[skillName];
+	await writeLocalLock(lock, cwd);
+	return true;
+}
 function createEmptyLocalLock() {
 	return {
 		version: CURRENT_VERSION$1,
 		skills: {}
 	};
 }
+const AGENTS_DIR$1 = ".agents";
+const SKILLS_SUBDIR = "skills";
 const SKIP_DIRS = [
 	"node_modules",
 	".git",
@@ -772,19 +1107,24 @@ const AGENT_PROJECT_SKILL_DIRS = [
 	".continue/skills",
 	".github/skills",
 	".goose/skills",
+	".grok/skills",
 	".iflow/skills",
 	".junie/skills",
 	".kilocode/skills",
+	".kimchi/skills",
 	".kiro/skills",
+	".minimax/skills",
 	".mux/skills",
 	".neovate/skills",
 	".opencode/skills",
 	".openhands/skills",
 	".pi/skills",
+	".posit/assistant/skills",
 	".qoder/skills",
 	".roo/skills",
 	".trae/skills",
 	".windsurf/skills",
+	".zcode/skills",
 	".zencoder/skills"
 ];
 function normalizeSkillName(name) {
@@ -792,6 +1132,9 @@ function normalizeSkillName(name) {
 }
 function normalizeRelativePath(path) {
 	return path.split(sep).join("/").replace(/\/+/g, "/");
+}
+function isRecord(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function shouldInstallInternalSkills() {
 	const envValue = process.env.INSTALL_INTERNAL_SKILLS;
@@ -804,23 +1147,44 @@ async function hasSkillMd(dir) {
 		return false;
 	}
 }
+function warnSkippedSkill(skillMdPath, reason) {
+	console.warn(`⚠ Skipped ${sanitizeMetadata(skillMdPath)} — ${stripTerminalEscapes(reason)}`);
+}
 async function parseSkillMd(skillMdPath, options) {
+	let content;
 	try {
-		const content = await readFile(skillMdPath, "utf-8");
-		const { data } = parseFrontmatter(content);
-		if (!data.name || !data.description) return null;
-		if (typeof data.name !== "string" || typeof data.description !== "string") return null;
-		if (data.metadata?.internal === true && !shouldInstallInternalSkills() && !options?.includeInternal) return null;
-		return {
-			name: sanitizeMetadata(data.name),
-			description: sanitizeMetadata(data.description),
-			path: dirname(skillMdPath),
-			rawContent: content,
-			metadata: data.metadata
-		};
-	} catch {
+		content = await readFile(skillMdPath, "utf-8");
+	} catch (err) {
+		warnSkippedSkill(skillMdPath, `failed to read file: ${err.message}`);
 		return null;
 	}
+	let data;
+	try {
+		({data} = parseFrontmatter(content));
+	} catch (err) {
+		warnSkippedSkill(skillMdPath, `YAML parse error: ${err.message}`);
+		return null;
+	}
+	if (!data.name || !data.description) {
+		const missing = [];
+		if (!data.name) missing.push("name");
+		if (!data.description) missing.push("description");
+		warnSkippedSkill(skillMdPath, `missing required frontmatter field(s): ${missing.join(", ")}`);
+		return null;
+	}
+	if (typeof data.name !== "string" || typeof data.description !== "string") {
+		warnSkippedSkill(skillMdPath, `frontmatter "name" and "description" must be strings (got ${typeof data.name} and ${typeof data.description})`);
+		return null;
+	}
+	const metadata = isRecord(data.metadata) ? data.metadata : void 0;
+	if (metadata?.internal === true && !shouldInstallInternalSkills() && !options?.includeInternal) return null;
+	return {
+		name: sanitizeMetadata(data.name),
+		description: sanitizeMetadata(data.description),
+		path: dirname(skillMdPath),
+		rawContent: content,
+		metadata
+	};
 }
 async function findSkillDirs(dir, depth = 0, maxDepth = 5) {
 	if (depth > maxDepth) return [];
@@ -841,6 +1205,7 @@ function isSubpathSafe(basePath, subpath) {
 async function discoverSkills(basePath, subpath, options) {
 	const skills = [];
 	const seenNames = /* @__PURE__ */ new Set();
+	const parsedSkillPaths = /* @__PURE__ */ new Set();
 	const localLock = await readLocalLock(basePath);
 	const lockedSkillNames = new Set(Object.keys(localLock.skills).map(normalizeSkillName));
 	if (subpath && !isSubpathSafe(basePath, subpath)) throw new Error(`Invalid subpath: "${subpath}" resolves outside the repository directory. Subpath must not contain ".." segments that escape the base path.`);
@@ -859,8 +1224,14 @@ async function discoverSkills(basePath, subpath, options) {
 		const directoryName = normalizeSkillName(basename(skill.path));
 		return lockedSkillNames.has(skillName) || lockedSkillNames.has(directoryName);
 	};
+	const parseSkillAt = async (skillDir) => {
+		const skillMdPath = resolve(skillDir, "SKILL.md");
+		if (parsedSkillPaths.has(skillMdPath)) return null;
+		parsedSkillPaths.add(skillMdPath);
+		return parseSkillMd(skillMdPath, options);
+	};
 	if (await hasSkillMd(searchPath)) {
-		let skill = await parseSkillMd(join(searchPath, "SKILL.md"), options);
+		let skill = await parseSkillAt(searchPath);
 		if (skill) {
 			if (!isInstalledProjectSkill(skill)) {
 				skill = enhanceSkill(skill);
@@ -882,7 +1253,7 @@ async function discoverSkills(basePath, subpath, options) {
 	prioritySearchDirs.push(...await getPluginSkillPaths(searchPath));
 	const tryAddSkillAt = async (skillDir) => {
 		if (!await hasSkillMd(skillDir)) return false;
-		let skill = await parseSkillMd(join(skillDir, "SKILL.md"), options);
+		let skill = await parseSkillAt(skillDir);
 		if (!skill || seenNames.has(skill.name)) return true;
 		if (isInstalledProjectSkill(skill)) return true;
 		skill = enhanceSkill(skill);
@@ -890,29 +1261,22 @@ async function discoverSkills(basePath, subpath, options) {
 		seenNames.add(skill.name);
 		return true;
 	};
-	for (const dir of prioritySearchDirs) {
-		const walkDeep = deepContainerDirs.has(dir);
+	const walkSkillDirs = async (dir, maxDepth, depth = 1) => {
 		try {
 			const entries = await readdir(dir, { withFileTypes: true });
 			for (const entry of entries) {
 				if (!entry.isDirectory()) continue;
 				const childDir = join(dir, entry.name);
-				if (await tryAddSkillAt(childDir) || !walkDeep) continue;
-				if (SKIP_DIRS.includes(entry.name)) continue;
-				try {
-					const grandEntries = await readdir(childDir, { withFileTypes: true });
-					for (const grand of grandEntries) {
-						if (!grand.isDirectory() || SKIP_DIRS.includes(grand.name)) continue;
-						await tryAddSkillAt(join(childDir, grand.name));
-					}
-				} catch {}
+				if (await tryAddSkillAt(childDir) || depth >= maxDepth || SKIP_DIRS.includes(entry.name)) continue;
+				await walkSkillDirs(childDir, maxDepth, depth + 1);
 			}
 		} catch {}
-	}
+	};
+	for (const dir of prioritySearchDirs) await walkSkillDirs(dir, deepContainerDirs.has(dir) ? 3 : 1);
 	if (skills.length === 0 || options?.fullDepth) {
 		const allSkillDirs = await findSkillDirs(searchPath);
 		for (const skillDir of allSkillDirs) {
-			let skill = await parseSkillMd(join(skillDir, "SKILL.md"), options);
+			let skill = await parseSkillAt(skillDir);
 			if (skill && !seenNames.has(skill.name) && !isInstalledProjectSkill(skill)) {
 				skill = enhanceSkill(skill);
 				skills.push(skill);
@@ -940,6 +1304,7 @@ const claudeHome = process.env.CLAUDE_CONFIG_DIR?.trim() || join(home, ".claude"
 const vibeHome = process.env.VIBE_HOME?.trim() || join(home, ".vibe");
 const hermesHome = process.env.HERMES_HOME?.trim() || join(home, ".hermes");
 const autohandHome = process.env.AUTOHAND_HOME?.trim() || join(home, ".autohand");
+const grokHome = process.env.GROK_HOME?.trim() || join(home, ".grok");
 const zedAppDataHome = process.env.APPDATA?.trim();
 const zedFlatpakConfigHome = process.env.FLATPAK_XDG_CONFIG_HOME?.trim();
 function packageJsonHasDependency(packageJsonPath, dependencyName) {
@@ -955,6 +1320,18 @@ function getOpenClawGlobalSkillsDir(homeDir = home, pathExists = existsSync) {
 	if (pathExists(join(homeDir, ".clawdbot"))) return join(homeDir, ".clawdbot/skills");
 	if (pathExists(join(homeDir, ".moltbot"))) return join(homeDir, ".moltbot/skills");
 	return join(homeDir, ".openclaw/skills");
+}
+function isZCodeInstalled(homeDir = home, pathExists = existsSync) {
+	return pathExists(join(homeDir, ".zcode")) || pathExists("/Applications/ZCode.app");
+}
+function isKimchiInstalled(homeDir = home, pathExists = existsSync) {
+	return pathExists(join(homeDir, ".config", "kimchi"));
+}
+function isMiniMaxCodeInstalled(homeDir = home, pathExists = existsSync) {
+	return pathExists(join(homeDir, ".minimax")) || pathExists("/Applications/MiniMax Code.app");
+}
+function isPositAssistantInstalled(homeDir = home, pathExists = existsSync) {
+	return pathExists(join(homeDir, ".posit/assistant")) || pathExists(join(homeDir, ".positai"));
 }
 const agents = {
 	"aider-desk": {
@@ -1239,6 +1616,15 @@ const agents = {
 			return existsSync(join(configHome, "goose"));
 		}
 	},
+	grok: {
+		name: "grok",
+		displayName: "Grok Build",
+		skillsDir: ".grok/skills",
+		globalSkillsDir: join(grokHome, "skills"),
+		detectInstalled: async () => {
+			return existsSync(grokHome);
+		}
+	},
 	"hermes-agent": {
 		name: "hermes-agent",
 		displayName: "Hermes Agent",
@@ -1291,6 +1677,15 @@ const agents = {
 		globalSkillsDir: join(home, ".kilocode/skills"),
 		detectInstalled: async () => {
 			return existsSync(join(home, ".kilocode"));
+		}
+	},
+	kimchi: {
+		name: "kimchi",
+		displayName: "Kimchi",
+		skillsDir: ".kimchi/skills",
+		globalSkillsDir: join(home, ".config", "kimchi", "harness", "skills"),
+		detectInstalled: async () => {
+			return isKimchiInstalled();
 		}
 	},
 	"kimi-code-cli": {
@@ -1346,6 +1741,15 @@ const agents = {
 		globalSkillsDir: join(home, ".mcpjam/skills"),
 		detectInstalled: async () => {
 			return existsSync(join(home, ".mcpjam"));
+		}
+	},
+	"minimax-code": {
+		name: "minimax-code",
+		displayName: "MiniMax Code",
+		skillsDir: ".minimax/skills",
+		globalSkillsDir: join(home, ".minimax/skills"),
+		detectInstalled: async () => {
+			return isMiniMaxCodeInstalled();
 		}
 	},
 	"mistral-vibe": {
@@ -1409,6 +1813,15 @@ const agents = {
 		globalSkillsDir: join(home, ".pi/agent/skills"),
 		detectInstalled: async () => {
 			return existsSync(join(home, ".pi/agent"));
+		}
+	},
+	"posit-assistant": {
+		name: "posit-assistant",
+		displayName: "Posit Assistant",
+		skillsDir: ".posit/assistant/skills",
+		globalSkillsDir: join(home, ".posit/assistant/skills"),
+		detectInstalled: async () => {
+			return isPositAssistantInstalled();
 		}
 	},
 	qoder: {
@@ -1547,6 +1960,15 @@ const agents = {
 			return existsSync(join(configHome, "zed")) || !!zedAppDataHome && existsSync(join(zedAppDataHome, "Zed")) || !!zedFlatpakConfigHome && existsSync(join(zedFlatpakConfigHome, "zed"));
 		}
 	},
+	zcode: {
+		name: "zcode",
+		displayName: "ZCode",
+		skillsDir: ".zcode/skills",
+		globalSkillsDir: join(home, ".zcode/skills"),
+		detectInstalled: async () => {
+			return isZCodeInstalled();
+		}
+	},
 	zencoder: {
 		name: "zencoder",
 		displayName: "Zencoder",
@@ -1639,18 +2061,16 @@ function getNonUniversalAgents() {
 function isUniversalAgent(type) {
 	return agents[type].skillsDir === ".agents/skills";
 }
-const AGENTS_DIR$1 = ".agents";
-const SKILLS_SUBDIR = "skills";
 function sanitizeName(name) {
 	return name.toLowerCase().replace(/[^a-z0-9._]+/g, "-").replace(/^[.\-]+|[.\-]+$/g, "").substring(0, 255) || "unnamed-skill";
 }
-function isPathSafe$1(basePath, targetPath) {
+function isPathSafe$2(basePath, targetPath) {
 	const normalizedBase = normalize(resolve(basePath));
 	const normalizedTarget = normalize(resolve(targetPath));
 	return normalizedTarget.startsWith(normalizedBase + sep) || normalizedTarget === normalizedBase;
 }
 function pathsOverlap(pathA, pathB) {
-	return isPathSafe$1(pathA, pathB) || isPathSafe$1(pathB, pathA);
+	return isPathSafe$2(pathA, pathB) || isPathSafe$2(pathB, pathA);
 }
 async function isDirEntryOrSymlinkToDir(entry, entryPath) {
 	if (entry.isDirectory()) return true;
@@ -1744,13 +2164,13 @@ async function installSkillForAgent(skill, agentType, options = {}) {
 	const canonicalDir = join(canonicalBase, skillName);
 	const agentBase = getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent);
 	const agentDir = join(agentBase, skillName);
-	if (!isPathSafe$1(canonicalBase, canonicalDir)) return {
+	if (!isPathSafe$2(canonicalBase, canonicalDir)) return {
 		success: false,
 		path: agentDir,
 		mode: installMode,
 		error: "Invalid skill name: potential path traversal detected"
 	};
-	if (!isPathSafe$1(agentBase, agentDir)) return {
+	if (!isPathSafe$2(agentBase, agentDir)) return {
 		success: false,
 		path: agentDir,
 		mode: installMode,
@@ -1788,7 +2208,7 @@ async function installSkillForAgent(skill, agentType, options = {}) {
 			mode: "symlink"
 		};
 		if (!isGlobal && !isUniversalAgent(agentType)) {
-			if (!existsSync(join(cwd, agents[agentType].skillsDir.split("/")[0]))) return {
+			if (!existsSync(join(cwd, agents[agentType].skillsDir.split("/")[0])) && agentType !== "claude-code") return {
 				success: true,
 				path: canonicalDir,
 				canonicalPath: canonicalDir,
@@ -1822,8 +2242,8 @@ async function installSkillForAgent(skill, agentType, options = {}) {
 		};
 	}
 }
-const EXCLUDE_FILES$1 = new Set(["metadata.json"]);
-const EXCLUDE_DIRS$1 = new Set([
+const EXCLUDE_FILES$1 = /* @__PURE__ */ new Set(["metadata.json"]);
+const EXCLUDE_DIRS$1 = /* @__PURE__ */ new Set([
 	".git",
 	"__pycache__",
 	"__pypackages__"
@@ -1862,6 +2282,7 @@ async function copyDirectory(src, dest, agentType) {
 				dereference: true,
 				recursive: true
 			});
+			await chmod(destPath, (await stat(srcPath)).mode & 511);
 		} catch (err) {
 			if (err instanceof Error && "code" in err && err.code === "ENOENT" && entry.isSymbolicLink()) console.warn(`Skipping broken symlink: ${srcPath}`);
 			else throw err;
@@ -1886,7 +2307,7 @@ async function isSkillInstalled(skillName, agentType, options = {}) {
 	if (options.global && agent.globalSkillsDir === void 0) return false;
 	const targetBase = options.global ? agent.globalSkillsDir : agentType === "eve" && options.eveSubagent ? getEveSubagentSkillsDir(options.eveSubagent, options.cwd) : join(options.cwd || process.cwd(), agent.skillsDir);
 	const skillDir = join(targetBase, sanitized);
-	if (!isPathSafe$1(targetBase, skillDir)) return false;
+	if (!isPathSafe$2(targetBase, skillDir)) return false;
 	try {
 		await access(skillDir);
 		return true;
@@ -1900,14 +2321,14 @@ function getInstallPath(skillName, agentType, options = {}) {
 	const sanitized = sanitizeName(skillName);
 	const targetBase = getAgentBaseDir(agentType, options.global ?? false, options.cwd, options.eveSubagent);
 	const installPath = join(targetBase, sanitized);
-	if (!isPathSafe$1(targetBase, installPath)) throw new Error("Invalid skill name: potential path traversal detected");
+	if (!isPathSafe$2(targetBase, installPath)) throw new Error("Invalid skill name: potential path traversal detected");
 	return installPath;
 }
 function getCanonicalPath(skillName, options = {}) {
 	const sanitized = sanitizeName(skillName);
 	const canonicalBase = options.agent === "eve" ? getAgentBaseDir("eve", options.global ?? false, options.cwd, options.eveSubagent) : getCanonicalSkillsDir(options.global ?? false, options.cwd);
 	const canonicalPath = join(canonicalBase, sanitized);
-	if (!isPathSafe$1(canonicalBase, canonicalPath)) throw new Error("Invalid skill name: potential path traversal detected");
+	if (!isPathSafe$2(canonicalBase, canonicalPath)) throw new Error("Invalid skill name: potential path traversal detected");
 	return canonicalPath;
 }
 async function installWellKnownSkillForAgent(skill, agentType, options = {}) {
@@ -1927,13 +2348,13 @@ async function installWellKnownSkillForAgent(skill, agentType, options = {}) {
 	const canonicalDir = join(canonicalBase, skillName);
 	const agentBase = getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent);
 	const agentDir = join(agentBase, skillName);
-	if (!isPathSafe$1(canonicalBase, canonicalDir)) return {
+	if (!isPathSafe$2(canonicalBase, canonicalDir)) return {
 		success: false,
 		path: agentDir,
 		mode: installMode,
 		error: "Invalid skill name: potential path traversal detected"
 	};
-	if (!isPathSafe$1(agentBase, agentDir)) return {
+	if (!isPathSafe$2(agentBase, agentDir)) return {
 		success: false,
 		path: agentDir,
 		mode: installMode,
@@ -1942,7 +2363,7 @@ async function installWellKnownSkillForAgent(skill, agentType, options = {}) {
 	async function writeSkillFiles(targetDir) {
 		for (const [filePath, content] of skill.files) {
 			const fullPath = join(targetDir, filePath);
-			if (!isPathSafe$1(targetDir, fullPath)) continue;
+			if (!isPathSafe$2(targetDir, fullPath)) continue;
 			const parentDir = dirname(fullPath);
 			if (parentDir !== targetDir) await mkdir(parentDir, { recursive: true });
 			await writeFile(fullPath, agentType === "eve" && basename(filePath).toLowerCase() === "skill.md" && typeof content === "string" ? stripIgnoredEveFrontmatter(content) : content);
@@ -2008,7 +2429,7 @@ async function installBlobSkillForAgent(skill, agentType, options = {}) {
 	const agentBase = getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent);
 	if (agentType === "eve" && !isEvePackagedSkill(skill.files)) {
 		const flatSkillPath = join(agentBase, toEveFlatSkillFileName(skill.installName));
-		if (!isPathSafe$1(agentBase, flatSkillPath)) return {
+		if (!isPathSafe$2(agentBase, flatSkillPath)) return {
 			success: false,
 			path: flatSkillPath,
 			mode: installMode,
@@ -2038,13 +2459,13 @@ async function installBlobSkillForAgent(skill, agentType, options = {}) {
 	const canonicalBase = agentType === "eve" && installMode === "symlink" ? getAgentBaseDir(agentType, isGlobal, cwd, eveSubagent) : getCanonicalSkillsDir(isGlobal, cwd);
 	const canonicalDir = join(canonicalBase, skillName);
 	const agentDir = join(agentBase, skillName);
-	if (!isPathSafe$1(canonicalBase, canonicalDir)) return {
+	if (!isPathSafe$2(canonicalBase, canonicalDir)) return {
 		success: false,
 		path: agentDir,
 		mode: installMode,
 		error: "Invalid skill name: potential path traversal detected"
 	};
-	if (!isPathSafe$1(agentBase, agentDir)) return {
+	if (!isPathSafe$2(agentBase, agentDir)) return {
 		success: false,
 		path: agentDir,
 		mode: installMode,
@@ -2053,7 +2474,7 @@ async function installBlobSkillForAgent(skill, agentType, options = {}) {
 	async function writeSkillFiles(targetDir) {
 		for (const file of skill.files) {
 			const fullPath = join(targetDir, file.path);
-			if (!isPathSafe$1(targetDir, fullPath)) continue;
+			if (!isPathSafe$2(targetDir, fullPath)) continue;
 			const parentDir = dirname(fullPath);
 			if (parentDir !== targetDir) await mkdir(parentDir, { recursive: true });
 			await writeFile(fullPath, agentType === "eve" && basename(file.path).toLowerCase() === "skill.md" ? stripIgnoredEveFrontmatter(file.contents) : file.contents, "utf-8");
@@ -2078,7 +2499,7 @@ async function installBlobSkillForAgent(skill, agentType, options = {}) {
 			mode: "symlink"
 		};
 		if (!isGlobal && !isUniversalAgent(agentType)) {
-			if (!existsSync(join(cwd, agents[agentType].skillsDir.split("/")[0]))) return {
+			if (!existsSync(join(cwd, agents[agentType].skillsDir.split("/")[0])) && agentType !== "claude-code") return {
 				success: true,
 				path: canonicalDir,
 				canonicalPath: canonicalDir,
@@ -2195,14 +2616,14 @@ async function listInstalledSkills(options = {}) {
 				if (scope.global && agent.globalSkillsDir === void 0) continue;
 				const agentBase = getAgentBaseDir(agentType, scope.global, cwd);
 				let found = false;
-				const possibleNames = Array.from(new Set([
+				const possibleNames = Array.from(/* @__PURE__ */ new Set([
 					entry.name,
 					sanitizedSkillName,
 					skill.name.toLowerCase().replace(/\s+/g, "-").replace(/[\/\\:\0]/g, "")
 				]));
 				for (const possibleName of possibleNames) {
 					const agentSkillDir = join(agentBase, possibleName);
-					if (!isPathSafe$1(agentBase, agentSkillDir)) continue;
+					if (!isPathSafe$2(agentBase, agentSkillDir)) continue;
 					try {
 						await access(agentSkillDir);
 						found = true;
@@ -2214,7 +2635,7 @@ async function listInstalledSkills(options = {}) {
 					for (const agentEntry of agentEntries) {
 						const candidateDir = join(agentBase, agentEntry.name);
 						if (!await isDirEntryOrSymlinkToDir(agentEntry, candidateDir)) continue;
-						if (!isPathSafe$1(agentBase, candidateDir)) continue;
+						if (!isPathSafe$2(agentBase, candidateDir)) continue;
 						try {
 							const candidateSkillMd = join(candidateDir, "SKILL.md");
 							await stat(candidateSkillMd);
@@ -2260,6 +2681,7 @@ function setVersion(version) {
 	cliVersion = version;
 }
 async function fetchAuditData(source, skillSlugs, timeoutMs = 3e3) {
+	if (!isEnabled()) return null;
 	if (skillSlugs.length === 0) return null;
 	try {
 		const params = new URLSearchParams({
@@ -2296,6 +2718,23 @@ async function flushTelemetry(timeoutMs = 5e3) {
 }
 var import_dist = require_dist();
 let cachedResult = null;
+function hasStrongCursorAgentSignal() {
+	return Boolean(process.env.CURSOR_AGENT?.trim()) || process.env.CURSOR_EXTENSION_HOST_ROLE === "agent-exec";
+}
+function refineAgentResult(result) {
+	if (!result.isAgent || !result.agent) return result;
+	if (result.agent.name === "cursor" || result.agent.name === "cursor-cli") {
+		if (!hasStrongCursorAgentSignal()) return {
+			isAgent: false,
+			agent: void 0
+		};
+		if (result.agent.name === "cursor") return {
+			isAgent: true,
+			agent: { name: "cursor-cli" }
+		};
+	}
+	return result;
+}
 const agentNameToType = {
 	cursor: "cursor",
 	"cursor-cli": "cursor",
@@ -2312,7 +2751,7 @@ const agentNameToType = {
 };
 async function detectAgent() {
 	if (cachedResult) return cachedResult;
-	cachedResult = await (0, import_dist.determineAgent)();
+	cachedResult = refineAgentResult(await (0, import_dist.determineAgent)());
 	if (cachedResult.isAgent) setDetectedAgent(cachedResult.agent.name);
 	return cachedResult;
 }
@@ -2337,9 +2776,230 @@ var ProviderRegistryImpl = class {
 	}
 };
 new ProviderRegistryImpl();
+const ZIP_LOCAL_FILE_HEADER = 67324752;
+const ZIP_CENTRAL_DIRECTORY_HEADER = 33639248;
+const ZIP_END_OF_CENTRAL_DIRECTORY = 101010256;
+const ZIP64_END_OF_CENTRAL_DIRECTORY = 101075792;
+const ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR = 117853008;
+const ZIP_END_MIN_SIZE = 22;
+const ZIP_MAX_COMMENT_SIZE = 65535;
+const CP437_HIGH_BYTES = [
+	"ÇüéâäàåçêëèïîìÄÅ",
+	"ÉæÆôöòûùÿÖÜ¢£¥₧ƒ",
+	"áíóúñÑªº¿⌐¬½¼¡«»",
+	"░▒▓│┤╡╢╖╕╣║╗╝╜╛┐",
+	"└┴┬├─┼╞╟╚╔╩╦╠═╬╧",
+	"╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀",
+	"αßΓπΣσµτΦΘΩδ∞φε∩",
+	"≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\xA0"
+].join("");
+var ArchiveValidationError = class extends Error {
+	constructor(message) {
+		super(message);
+		this.name = "ArchiveValidationError";
+	}
+};
+function ensureRange(buffer, offset, length, label) {
+	if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0 || offset + length > buffer.length) throw new Error(`Invalid zip archive: ${label} is out of bounds`);
+}
+function findEndOfCentralDirectory(buffer) {
+	const minOffset = Math.max(0, buffer.length - ZIP_MAX_COMMENT_SIZE - ZIP_END_MIN_SIZE);
+	for (let offset = buffer.length - ZIP_END_MIN_SIZE; offset >= minOffset; offset--) {
+		if (buffer.readUInt32LE(offset) !== ZIP_END_OF_CENTRAL_DIRECTORY) continue;
+		const commentLength = buffer.readUInt16LE(offset + 20);
+		if (offset + ZIP_END_MIN_SIZE + commentLength === buffer.length) return offset;
+	}
+	return -1;
+}
+function readUInt64AsNumber(buffer, offset, label) {
+	ensureRange(buffer, offset, 8, label);
+	const value = buffer.readBigUInt64LE(offset);
+	if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`Invalid zip archive: ${label} exceeds the safe integer range`);
+	return Number(value);
+}
+function readCentralDirectory(buffer, endOffset) {
+	const diskNumber = buffer.readUInt16LE(endOffset + 4);
+	const centralDirectoryDisk = buffer.readUInt16LE(endOffset + 6);
+	const entriesOnDisk = buffer.readUInt16LE(endOffset + 8);
+	const totalEntries = buffer.readUInt16LE(endOffset + 10);
+	const size = buffer.readUInt32LE(endOffset + 12);
+	const offset = buffer.readUInt32LE(endOffset + 16);
+	if (!(entriesOnDisk === 65535 || totalEntries === 65535 || size === 4294967295 || offset === 4294967295)) {
+		if (diskNumber !== 0 || centralDirectoryDisk !== 0 || entriesOnDisk !== totalEntries) throw new Error("Multi-disk zip archives are not supported");
+		return {
+			entries: totalEntries,
+			offset,
+			size,
+			trailerOffset: endOffset
+		};
+	}
+	if (diskNumber !== 0 || centralDirectoryDisk !== 0) throw new Error("Multi-disk zip archives are not supported");
+	const locatorOffset = endOffset - 20;
+	ensureRange(buffer, locatorOffset, 20, "zip64 locator");
+	if (buffer.readUInt32LE(locatorOffset) !== ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR) throw new Error("Invalid zip64 locator");
+	if (buffer.readUInt32LE(locatorOffset + 4) !== 0 || buffer.readUInt32LE(locatorOffset + 16) !== 1) throw new Error("Multi-disk zip archives are not supported");
+	const zip64EndOffset = readUInt64AsNumber(buffer, locatorOffset + 8, "zip64 end offset");
+	ensureRange(buffer, zip64EndOffset, 56, "zip64 end of central directory");
+	if (buffer.readUInt32LE(zip64EndOffset) !== ZIP64_END_OF_CENTRAL_DIRECTORY) throw new Error("Invalid zip64 end of central directory");
+	const recordSize = readUInt64AsNumber(buffer, zip64EndOffset + 4, "zip64 end size");
+	if (recordSize < 44) throw new Error("Invalid zip64 end of central directory");
+	ensureRange(buffer, zip64EndOffset, recordSize + 12, "zip64 end of central directory");
+	if (zip64EndOffset + recordSize + 12 !== locatorOffset) throw new Error("Invalid zip64 end of central directory");
+	if (buffer.readUInt32LE(zip64EndOffset + 16) !== 0 || buffer.readUInt32LE(zip64EndOffset + 20) !== 0) throw new Error("Multi-disk zip archives are not supported");
+	const zip64EntriesOnDisk = readUInt64AsNumber(buffer, zip64EndOffset + 24, "zip64 entries on disk");
+	const zip64TotalEntries = readUInt64AsNumber(buffer, zip64EndOffset + 32, "zip64 total entries");
+	if (zip64EntriesOnDisk !== zip64TotalEntries) throw new Error("Multi-disk zip archives are not supported");
+	return {
+		entries: zip64TotalEntries,
+		size: readUInt64AsNumber(buffer, zip64EndOffset + 40, "zip64 central directory size"),
+		offset: readUInt64AsNumber(buffer, zip64EndOffset + 48, "zip64 central directory offset"),
+		trailerOffset: zip64EndOffset
+	};
+}
+function normalizeArchivePath(rawPath) {
+	if (!rawPath || rawPath.includes("\0")) return null;
+	const path = rawPath.replace(/\\/g, "/");
+	if (path.startsWith("/") || /^[A-Za-z]:/.test(path)) return null;
+	const parts = path.split("/");
+	if (parts.some((part) => part === "..")) return null;
+	const normalized = parts.filter((part) => part && part !== ".").join("/");
+	if (!normalized && !path.endsWith("/")) return null;
+	return path.endsWith("/") && normalized ? `${normalized}/` : normalized;
+}
+function findExtraField(buffer, extraOffset, extraLength, targetId) {
+	const extraEnd = extraOffset + extraLength;
+	let offset = extraOffset;
+	while (offset < extraEnd) {
+		if (offset + 4 > extraEnd) throw new Error("Invalid zip extra field");
+		const id = buffer.readUInt16LE(offset);
+		const size = buffer.readUInt16LE(offset + 2);
+		const dataOffset = offset + 4;
+		ensureRange(buffer, dataOffset, size, "zip extra field");
+		if (dataOffset + size > extraEnd) throw new Error("Invalid zip extra field");
+		if (id === targetId) return buffer.subarray(dataOffset, dataOffset + size);
+		offset = dataOffset + size;
+	}
+	return null;
+}
+function decodeFileName(bytes, isUtf8, unicodePathExtra) {
+	if (isUtf8) return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+	if (unicodePathExtra && unicodePathExtra.length >= 5 && unicodePathExtra[0] === 1 && unicodePathExtra.readUInt32LE(1) === crc32(bytes)) return new TextDecoder("utf-8", { fatal: true }).decode(unicodePathExtra.subarray(5));
+	let result = "";
+	for (const byte of bytes) result += byte < 128 ? String.fromCharCode(byte) : CP437_HIGH_BYTES[byte - 128];
+	return result;
+}
+function readZip64EntryValues(buffer, extraOffset, extraLength, values) {
+	if (!(values.uncompressedSize === 4294967295 || values.compressedSize === 4294967295 || values.localHeaderOffset === 4294967295 || values.diskStart === 65535)) {
+		if (values.diskStart !== 0) throw new Error("Multi-disk zip archives are not supported");
+		return values;
+	}
+	const zip64Extra = findExtraField(buffer, extraOffset, extraLength, 1);
+	if (!zip64Extra) throw new Error("Invalid zip64 extra field");
+	let valueOffset = 0;
+	const readNextUInt64 = (label) => {
+		if (valueOffset + 8 > zip64Extra.length) throw new Error(`Invalid zip64 extra field: missing ${label}`);
+		const value = readUInt64AsNumber(zip64Extra, valueOffset, `zip64 ${label}`);
+		valueOffset += 8;
+		return value;
+	};
+	const resolved = { ...values };
+	if (resolved.uncompressedSize === 4294967295) resolved.uncompressedSize = readNextUInt64("uncompressed size");
+	if (resolved.compressedSize === 4294967295) resolved.compressedSize = readNextUInt64("compressed size");
+	if (resolved.localHeaderOffset === 4294967295) resolved.localHeaderOffset = readNextUInt64("local header offset");
+	if (resolved.diskStart === 65535) {
+		if (valueOffset + 4 > zip64Extra.length) throw new Error("Invalid zip64 extra field: missing disk start");
+		resolved.diskStart = zip64Extra.readUInt32LE(valueOffset);
+	}
+	if (resolved.diskStart !== 0) throw new Error("Multi-disk zip archives are not supported");
+	return resolved;
+}
+function readZipArchive(bytes, limits) {
+	const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const endOffset = findEndOfCentralDirectory(buffer);
+	if (endOffset < 0) throw new Error("Invalid zip archive");
+	const centralDirectory = readCentralDirectory(buffer, endOffset);
+	const totalEntries = centralDirectory.entries;
+	if (totalEntries > limits.maxEntries) throw new ArchiveValidationError(`Archive contains too many files (${totalEntries}). Maximum is ${limits.maxEntries}.`);
+	ensureRange(buffer, centralDirectory.offset, centralDirectory.size, "central directory");
+	if (centralDirectory.offset + centralDirectory.size > centralDirectory.trailerOffset) throw new Error("Invalid zip archive: central directory overlaps archive trailer");
+	const files = /* @__PURE__ */ new Map();
+	let extractedBytes = 0;
+	let offset = centralDirectory.offset;
+	for (let index = 0; index < totalEntries; index++) {
+		ensureRange(buffer, offset, 46, "central directory entry");
+		if (buffer.readUInt32LE(offset) !== ZIP_CENTRAL_DIRECTORY_HEADER) throw new Error("Invalid zip central directory entry");
+		const flags = buffer.readUInt16LE(offset + 8);
+		const method = buffer.readUInt16LE(offset + 10);
+		const expectedChecksum = buffer.readUInt32LE(offset + 16);
+		let compressedSize = buffer.readUInt32LE(offset + 20);
+		let uncompressedSize = buffer.readUInt32LE(offset + 24);
+		const fileNameLength = buffer.readUInt16LE(offset + 28);
+		const extraLength = buffer.readUInt16LE(offset + 30);
+		const commentLength = buffer.readUInt16LE(offset + 32);
+		let diskStart = buffer.readUInt16LE(offset + 34);
+		const externalAttributes = buffer.readUInt32LE(offset + 38);
+		let localHeaderOffset = buffer.readUInt32LE(offset + 42);
+		const variableSize = fileNameLength + extraLength + commentLength;
+		ensureRange(buffer, offset + 46, variableSize, "central directory entry data");
+		const nameStart = offset + 46;
+		const extraOffset = nameStart + fileNameLength;
+		({compressedSize, diskStart, localHeaderOffset, uncompressedSize} = readZip64EntryValues(buffer, extraOffset, extraLength, {
+			compressedSize,
+			diskStart,
+			localHeaderOffset,
+			uncompressedSize
+		}));
+		const centralFileName = buffer.subarray(nameStart, nameStart + fileNameLength);
+		const rawFileName = decodeFileName(centralFileName, Boolean(flags & 2048), findExtraField(buffer, extraOffset, extraLength, 28789));
+		const fileName = normalizeArchivePath(rawFileName);
+		if (fileName === null) throw new ArchiveValidationError(`Archive contains unsafe path: ${rawFileName}`);
+		if (flags & 1) throw new ArchiveValidationError("Encrypted zip entries are not supported");
+		const fileType = externalAttributes >>> 16 & 61440;
+		if (fileType !== 0 && fileType !== 32768 && fileType !== 16384) throw new ArchiveValidationError("Archive links are not supported");
+		const isDirectory = rawFileName.replace(/\\/g, "/").endsWith("/") || fileType === 16384;
+		offset += 46 + variableSize;
+		extractedBytes += uncompressedSize;
+		if (extractedBytes > limits.maxExtractedBytes) throw new ArchiveValidationError(`Archive extracts to more than ${limits.maxExtractedBytes} bytes.`);
+		if (isDirectory) continue;
+		ensureRange(buffer, localHeaderOffset, 30, "local file header");
+		if (buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_HEADER) throw new Error("Invalid zip local file header");
+		const localFlags = buffer.readUInt16LE(localHeaderOffset + 6);
+		const localMethod = buffer.readUInt16LE(localHeaderOffset + 8);
+		const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+		const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+		const localNameOffset = localHeaderOffset + 30;
+		ensureRange(buffer, localNameOffset, localFileNameLength + localExtraLength, "local file header data");
+		const localFileName = buffer.subarray(localNameOffset, localNameOffset + localFileNameLength);
+		if (localFlags !== flags || localMethod !== method || !localFileName.equals(centralFileName)) throw new Error("Zip local header does not match central directory");
+		const dataOffset = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
+		ensureRange(buffer, dataOffset, compressedSize, "file data");
+		if (dataOffset + compressedSize > centralDirectory.offset) throw new Error("Invalid zip archive: file data overlaps central directory");
+		const compressed = buffer.subarray(dataOffset, dataOffset + compressedSize);
+		let contents;
+		if (method === 0) contents = compressed;
+		else if (method === 8) contents = inflateRawSync(compressed, { maxOutputLength: uncompressedSize + 1 });
+		else throw new Error(`Unsupported zip compression method: ${method}`);
+		if (contents.byteLength !== uncompressedSize) throw new Error("Zip entry size mismatch");
+		if (crc32(contents) !== expectedChecksum) throw new Error("Zip entry checksum mismatch");
+		files.set(fileName, new Uint8Array(contents));
+	}
+	if (offset !== centralDirectory.offset + centralDirectory.size) throw new Error("Invalid zip central directory size");
+	return files;
+}
 const DISCOVERY_SCHEMA_V2 = "https://schemas.agentskills.io/discovery/0.2.0/schema.json";
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1e3;
+const DISCOVERY_TIMEOUT_MS = 1e4;
+var WellKnownScopeNotFoundError = class extends Error {
+	scopePath;
+	rootUrl;
+	constructor(scopePath, rootUrl) {
+		super(`No skills found for the scoped path '${scopePath}' on ${rootUrl}. Not falling back to the root skills index because that would install every skill the host publishes. Check the URL, or run 'skills add ${rootUrl}' to install from the root index.`);
+		this.name = "WellKnownScopeNotFoundError";
+		this.scopePath = scopePath;
+		this.rootUrl = rootUrl;
+	}
+};
 var WellKnownProvider = class {
 	id = "well-known";
 	displayName = "Well-Known Skills";
@@ -2362,13 +3022,14 @@ var WellKnownProvider = class {
 			return { matches: false };
 		}
 	}
-	async fetchIndex(baseUrl) {
-		return (await this.fetchIndexCandidates(baseUrl))[0] ?? null;
+	async fetchIndex(baseUrl, options) {
+		return (await this.fetchIndexCandidates(baseUrl, options))[0] ?? null;
 	}
-	async fetchIndexCandidates(baseUrl) {
+	async fetchIndexCandidates(baseUrl, options) {
 		try {
 			const parsed = new URL(baseUrl);
 			const basePath = parsed.pathname.replace(/\/$/, "");
+			const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS);
 			const urlsToTry = [];
 			for (const wellKnownPath of this.WELL_KNOWN_PATHS) {
 				urlsToTry.push({
@@ -2384,7 +3045,10 @@ var WellKnownProvider = class {
 			}
 			const candidates = [];
 			for (const { indexUrl, baseUrl: resolvedBase, wellKnownPath } of urlsToTry) try {
-				const response = await fetch(indexUrl);
+				const response = await fetch(indexUrl, {
+					signal,
+					...options?.updateCheck ? { headers: { "X-Skills-Update-Check": "1" } } : {}
+				});
 				if (!response.ok) continue;
 				const rawIndex = await response.json();
 				const normalized = this.normalizeIndex(rawIndex, indexUrl, wellKnownPath);
@@ -2634,24 +3298,45 @@ var WellKnownProvider = class {
 			indexEntry: input.indexEntry
 		};
 	}
-	async fetchAllSkills(url) {
+	getScope(url) {
+		try {
+			const parsed = new URL(url);
+			const scopePath = parsed.pathname.replace(/\/$/, "");
+			if (!scopePath) return null;
+			return {
+				scopePath,
+				rootBaseUrl: `${parsed.protocol}//${parsed.host}`
+			};
+		} catch {
+			return null;
+		}
+	}
+	async fetchAllSkills(url, options = {}) {
 		try {
 			const candidates = await this.fetchIndexCandidates(url);
-			for (const result of candidates) {
+			const scope = this.getScope(url);
+			const scopedCandidates = scope ? candidates.filter((c) => c.resolvedBaseUrl !== scope.rootBaseUrl) : candidates;
+			const includeInternal = options.includeInternal || shouldInstallInternalSkills();
+			for (const result of scopedCandidates) {
 				const skillPromises = result.entries.map((entry) => this.fetchSkillByEntry(entry));
-				const skills = (await Promise.all(skillPromises)).filter((s) => s !== null);
+				const skills = (await Promise.all(skillPromises)).filter((s) => s !== null).filter((skill) => includeInternal || skill.metadata?.internal !== true);
 				if (skills.length > 0) return skills;
 			}
+			if (scope && scopedCandidates.length < candidates.length) throw new WellKnownScopeNotFoundError(scope.scopePath, scope.rootBaseUrl);
 			return [];
-		} catch {
+		} catch (error) {
+			if (error instanceof WellKnownScopeNotFoundError) throw error;
 			return [];
 		}
 	}
 	computeDigest(bytes) {
-		return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+		return `sha256:${createHash$1("sha256").update(bytes).digest("hex")}`;
 	}
 	extractArchive(bytes, artifactUrl, contentType) {
-		if (this.isZipArchive(bytes, artifactUrl, contentType)) return this.extractZip(bytes);
+		if (this.isZipArchive(bytes, artifactUrl, contentType)) return new Map(readZipArchive(bytes, {
+			maxExtractedBytes: MAX_ARCHIVE_UNPACKED_BYTES,
+			maxEntries: MAX_ARCHIVE_FILES
+		}));
 		if (this.isTarGzArchive(bytes, artifactUrl, contentType)) return this.extractTarGz(bytes);
 		throw new Error("Unsupported archive format");
 	}
@@ -2711,54 +3396,6 @@ var WellKnownProvider = class {
 		const nul = slice.indexOf(0);
 		return new TextDecoder().decode(nul >= 0 ? slice.subarray(0, nul) : slice);
 	}
-	extractZip(bytes) {
-		const buffer = Buffer.from(bytes);
-		const eocdOffset = this.findZipEndOfCentralDirectory(buffer);
-		if (eocdOffset < 0) throw new Error("Invalid zip archive");
-		const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
-		const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
-		const files = /* @__PURE__ */ new Map();
-		const runningTotal = { bytes: 0 };
-		let offset = centralDirectoryOffset;
-		for (let i = 0; i < totalEntries; i++) {
-			if (buffer.readUInt32LE(offset) !== 33639248) throw new Error("Invalid zip directory");
-			const flags = buffer.readUInt16LE(offset + 8);
-			const method = buffer.readUInt16LE(offset + 10);
-			const compressedSize = buffer.readUInt32LE(offset + 20);
-			const uncompressedSize = buffer.readUInt32LE(offset + 24);
-			const fileNameLength = buffer.readUInt16LE(offset + 28);
-			const extraLength = buffer.readUInt16LE(offset + 30);
-			const commentLength = buffer.readUInt16LE(offset + 32);
-			const externalAttributes = buffer.readUInt32LE(offset + 38);
-			const localHeaderOffset = buffer.readUInt32LE(offset + 42);
-			const nameStart = offset + 46;
-			const rawName = buffer.subarray(nameStart, nameStart + fileNameLength);
-			const fileName = new TextDecoder(flags & 2048 ? "utf-8" : void 0).decode(rawName);
-			offset = nameStart + fileNameLength + extraLength + commentLength;
-			if (fileName.endsWith("/")) continue;
-			if (flags & 1) throw new Error("Encrypted zip entries are not supported");
-			const fileType = externalAttributes >>> 16 & 61440;
-			if (fileType === 40960 || fileType === 4096) throw new Error("Archive links are not supported");
-			if (buffer.readUInt32LE(localHeaderOffset) !== 67324752) throw new Error("Invalid zip local header");
-			const localFileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
-			const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
-			const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraLength;
-			const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
-			let content;
-			if (method === 0) content = compressed;
-			else if (method === 8) content = inflateRawSync(compressed);
-			else throw new Error(`Unsupported zip compression method: ${method}`);
-			if (content.byteLength !== uncompressedSize) throw new Error("Zip entry size mismatch");
-			this.addArchiveFile(files, fileName, new Uint8Array(content), runningTotal);
-		}
-		if (!files.has("SKILL.md")) throw new Error("Archive missing root SKILL.md");
-		return files;
-	}
-	findZipEndOfCentralDirectory(buffer) {
-		const minOffset = Math.max(0, buffer.length - 65535 - 22);
-		for (let offset = buffer.length - 22; offset >= minOffset; offset--) if (buffer.readUInt32LE(offset) === 101010256) return offset;
-		return -1;
-	}
 	toRawUrl(url) {
 		try {
 			const parsed = new URL(url);
@@ -2786,7 +3423,199 @@ var WellKnownProvider = class {
 		return await this.fetchIndex(url) !== null;
 	}
 };
+function computeWellKnownSkillDigest(skill) {
+	if ("digest" in skill.indexEntry && skill.indexEntry.digest) return skill.indexEntry.digest;
+	const hash = createHash$1("sha256");
+	for (const path of Array.from(skill.files.keys()).sort()) {
+		hash.update(path);
+		hash.update("\0");
+		hash.update(skill.files.get(path));
+		hash.update("\0");
+	}
+	return `sha256:${hash.digest("hex")}`;
+}
 const wellKnownProvider = new WellKnownProvider();
+const DEFAULT_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_EXTRACT_MAX_BYTES = 25 * 1024 * 1024;
+const DEFAULT_EXTRACT_MAX_FILES = 1e3;
+const FETCH_TIMEOUT_MS = 3e4;
+function getPositiveIntegerEnv(name, fallback) {
+	const raw = process.env[name];
+	if (!raw) return fallback;
+	const parsed = Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+function getDownloadLimits() {
+	return {
+		downloadMaxBytes: getPositiveIntegerEnv("SKILLS_DOWNLOAD_MAX_BYTES", DEFAULT_DOWNLOAD_MAX_BYTES),
+		extractMaxBytes: getPositiveIntegerEnv("SKILLS_EXTRACT_MAX_BYTES", DEFAULT_EXTRACT_MAX_BYTES),
+		extractMaxFiles: getPositiveIntegerEnv("SKILLS_EXTRACT_MAX_FILES", DEFAULT_EXTRACT_MAX_FILES)
+	};
+}
+function isPathSafe$1(basePath, targetPath) {
+	const normalizedBase = normalize$1(resolve$1(basePath));
+	const normalizedTarget = normalize$1(resolve$1(targetPath));
+	return normalizedTarget.startsWith(normalizedBase + sep$1) || normalizedTarget === normalizedBase;
+}
+function validateArchivePath(path) {
+	const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+	if (!normalized || normalized.endsWith("/")) return normalized;
+	if (normalized.startsWith("/") || /^[a-zA-Z]:\//.test(normalized)) return null;
+	if (normalized.split("/").includes("..")) return null;
+	return normalized;
+}
+function incrementEntry(state, size, limits) {
+	state.entries += 1;
+	if (state.entries > limits.extractMaxFiles) throw new ArchiveValidationError(`Archive contains too many files (${state.entries}). Maximum is ${limits.extractMaxFiles}. Set SKILLS_EXTRACT_MAX_FILES to override.`);
+	state.bytes += size;
+	if (state.bytes > limits.extractMaxBytes) throw new ArchiveValidationError(`Archive extracts to more than ${limits.extractMaxBytes} bytes. Set SKILLS_EXTRACT_MAX_BYTES to override.`);
+}
+async function downloadToFile(url, targetFile, limits) {
+	const response = await fetch(url, {
+		signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+		redirect: "follow"
+	});
+	if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
+	const contentLength = response.headers.get("content-length");
+	if (contentLength) {
+		const parsed = Number.parseInt(contentLength, 10);
+		if (Number.isFinite(parsed) && parsed > limits.downloadMaxBytes) throw new Error(`Download is larger than ${limits.downloadMaxBytes} bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`);
+	}
+	if (!response.body) throw new Error("Download response has no body");
+	let downloaded = 0;
+	const limitStream = new TransformStream({ transform(chunk, controller) {
+		downloaded += chunk.byteLength;
+		if (downloaded > limits.downloadMaxBytes) throw new Error(`Download is larger than ${limits.downloadMaxBytes} bytes. Set SKILLS_DOWNLOAD_MAX_BYTES to override.`);
+		controller.enqueue(chunk);
+	} });
+	await pipeline(response.body.pipeThrough(limitStream), createWriteStream(targetFile));
+}
+async function isValidSkillMarkdown(filePath) {
+	try {
+		const { data } = parseFrontmatter(await readFile$1(filePath, "utf-8"));
+		return typeof data.name === "string" && typeof data.description === "string";
+	} catch {
+		return false;
+	}
+}
+async function extractZip(filePath, extractDir, limits) {
+	const files = readZipArchive(await readFile$1(filePath), {
+		maxExtractedBytes: limits.extractMaxBytes,
+		maxEntries: limits.extractMaxFiles
+	});
+	for (const [path, contents] of files) {
+		const targetPath = join$1(extractDir, path);
+		if (!isPathSafe$1(extractDir, targetPath)) throw new ArchiveValidationError(`Archive contains unsafe path: ${path}`);
+		await mkdir$1(dirname$1(targetPath), { recursive: true });
+		await writeFile$1(targetPath, contents);
+	}
+}
+function getTarEntryType(entry) {
+	if (entry instanceof tar.ReadEntry) return entry.type;
+	if (entry.isFile()) return "File";
+	if (entry.isDirectory()) return "Directory";
+	return "";
+}
+function isTarEntryFile(entry) {
+	const type = getTarEntryType(entry);
+	return type === "File" || type === "OldFile" || type === "ContiguousFile";
+}
+async function extractTar(filePath, extractDir, limits) {
+	const state = {
+		bytes: 0,
+		entries: 0
+	};
+	let validationError;
+	await tar.x({
+		strict: true,
+		filter(entryPath, entry) {
+			if (validationError) return false;
+			try {
+				const safePath = validateArchivePath(entryPath);
+				if (safePath === null) throw new ArchiveValidationError(`Archive contains unsafe path: ${entryPath}`);
+				if (!isPathSafe$1(extractDir, join$1(extractDir, safePath))) throw new ArchiveValidationError(`Archive contains unsafe path: ${entryPath}`);
+				incrementEntry(state, entry.size, limits);
+				if (isTarEntryFile(entry)) return true;
+				return getTarEntryType(entry) === "Directory";
+			} catch (error) {
+				if (error instanceof ArchiveValidationError) {
+					validationError = error;
+					return false;
+				}
+				throw error;
+			}
+		},
+		cwd: extractDir,
+		preservePaths: false,
+		noChmod: true,
+		file: filePath
+	});
+	if (validationError) throw validationError;
+}
+async function tryExtractArchive(filePath, extractDir, limits) {
+	const header = await readFile$1(filePath).then((buffer) => buffer.subarray(0, 512));
+	const isZip = header[0] === 80 && header[1] === 75;
+	const isGzip = header[0] === 31 && header[1] === 139;
+	try {
+		if (isZip) {
+			await extractZip(filePath, extractDir, limits);
+			return true;
+		}
+		if (isGzip) {
+			await extractTar(filePath, extractDir, limits);
+			return true;
+		}
+		await extractTar(filePath, extractDir, limits);
+		return true;
+	} catch (error) {
+		await rm$1(extractDir, {
+			recursive: true,
+			force: true
+		}).catch(() => {});
+		await mkdir$1(extractDir, { recursive: true });
+		if (error instanceof ArchiveValidationError) throw error;
+		return false;
+	}
+}
+async function getSingleTopLevelDirectory(dir) {
+	const { readdir } = await import("node:fs/promises");
+	const visibleEntries = (await readdir(dir, { withFileTypes: true })).filter((entry) => entry.name !== "__MACOSX");
+	if (visibleEntries.length !== 1 || !visibleEntries[0].isDirectory()) return null;
+	return join$1(dir, visibleEntries[0].name);
+}
+async function downloadSource(url) {
+	const limits = getDownloadLimits();
+	const tempDir = await mkdtemp$1(join$1(tmpdir$1(), "skills-download-"));
+	const downloadedFile = join$1(tempDir, "source.download");
+	const extractDir = join$1(tempDir, "extract");
+	try {
+		await downloadToFile(url, downloadedFile, limits);
+		if ((await stat$1(downloadedFile)).size === 0) throw new Error("Downloaded URL is empty");
+		if (await isValidSkillMarkdown(downloadedFile)) {
+			const skillDir = join$1(tempDir, "skill");
+			await mkdir$1(skillDir, { recursive: true });
+			await writeFile$1(join$1(skillDir, "SKILL.md"), await readFile$1(downloadedFile));
+			return {
+				rootDir: skillDir,
+				tempDir,
+				kind: "skill-md"
+			};
+		}
+		await mkdir$1(extractDir, { recursive: true });
+		if (await tryExtractArchive(downloadedFile, extractDir, limits)) return {
+			rootDir: await getSingleTopLevelDirectory(extractDir) ?? extractDir,
+			tempDir,
+			kind: "archive"
+		};
+		throw new Error("Downloaded URL is not a valid SKILL.md file or supported archive");
+	} catch (error) {
+		await rm$1(tempDir, {
+			recursive: true,
+			force: true
+		}).catch(() => {});
+		throw error;
+	}
+}
 const AGENTS_DIR = ".agents";
 const LOCK_FILE = ".skill-lock.json";
 const CURRENT_VERSION = 3;
@@ -2812,25 +3641,9 @@ async function writeSkillLock(lock) {
 	await mkdir(dirname(lockPath), { recursive: true });
 	await writeFile(lockPath, JSON.stringify(lock, null, 2), "utf-8");
 }
-let _ghWarningShown = false;
 function getGitHubToken() {
 	if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
 	if (process.env.GH_TOKEN) return process.env.GH_TOKEN;
-	if (!_ghWarningShown) {
-		process.stderr.write(`${import_picocolors.default.yellow("│")}  ${import_picocolors.default.yellow("GitHub rate limit reached")} — using your ${import_picocolors.default.cyan("gh")} login to continue.\n${import_picocolors.default.yellow("│")}  ${import_picocolors.default.dim(`Tip: set ${import_picocolors.default.cyan("GITHUB_TOKEN")} to avoid this prompt, or use ${import_picocolors.default.cyan("--full-depth")} to clone instead.\n`)}`);
-		_ghWarningShown = true;
-	}
-	try {
-		const token = execSync("gh auth token", {
-			encoding: "utf-8",
-			stdio: [
-				"pipe",
-				"pipe",
-				"pipe"
-			]
-		}).trim();
-		if (token) return token;
-	} catch {}
 	return null;
 }
 async function addSkillToLock(skillName, entry) {
@@ -2884,13 +3697,15 @@ async function saveSelectedAgents(agents) {
 const DOWNLOAD_BASE_URL = process.env.SKILLS_DOWNLOAD_URL || "https://skills.sh";
 const BLOB_ALLOWED_REPOS = { "zapier/connectors": { downloadUrl: (slug) => `https://connectors-skills.zapier.com/download/${encodeURIComponent(slug)}/snapshot.json` } };
 const FETCH_TIMEOUT = 1e4;
+const GH_API_MAX_BUFFER = 16 * 1024 * 1024;
 function toSkillSlug(name) {
 	return name.toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 let _rateLimitedThisSession = false;
 async function fetchTreeBranch(ownerRepo, branch, token) {
 	try {
-		const url = `https://api.github.com/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+		const githubHost = getGitHubHost();
+		const url = `${githubHost === "github.com" ? "https://api.github.com" : `https://${githubHost}/api/v3`}/repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
 		const headers = {
 			Accept: "application/vnd.github.v3+json",
 			"User-Agent": "skills-cli"
@@ -2908,46 +3723,24 @@ async function fetchTreeBranch(ownerRepo, branch, token) {
 					branch,
 					tree: data.tree
 				},
-				rateLimited: false
+				rateLimited: false,
+				authRetryable: false
 			};
 		}
 		return {
 			tree: null,
-			rateLimited: response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0"
+			rateLimited: response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0",
+			authRetryable: response.status === 401 || response.status === 404
 		};
 	} catch {
 		return {
 			tree: null,
-			rateLimited: false
+			rateLimited: false,
+			authRetryable: false
 		};
 	}
 }
-async function fetchRepoTree(ownerRepo, ref, getToken) {
-	const branches = ref ? [ref] : [
-		"HEAD",
-		"main",
-		"master"
-	];
-	if (_rateLimitedThisSession && getToken) {
-		const token = getToken();
-		if (!token) return null;
-		for (const branch of branches) {
-			const result = await fetchTreeBranch(ownerRepo, branch, token);
-			if (result.tree) return result.tree;
-		}
-		return null;
-	}
-	let rateLimited = false;
-	for (const branch of branches) {
-		const result = await fetchTreeBranch(ownerRepo, branch, null);
-		if (result.tree) return result.tree;
-		if (result.rateLimited) {
-			rateLimited = true;
-			break;
-		}
-	}
-	if (!rateLimited || !getToken) return null;
-	_rateLimitedThisSession = true;
+async function fetchTreeWithToken(ownerRepo, branches, getToken) {
 	const token = getToken();
 	if (!token) return null;
 	for (const branch of branches) {
@@ -2955,6 +3748,73 @@ async function fetchRepoTree(ownerRepo, ref, getToken) {
 		if (result.tree) return result.tree;
 	}
 	return null;
+}
+async function fetchTreeWithGitHubCli(ownerRepo, branches) {
+	for (const branch of branches) try {
+		const endpoint = `repos/${ownerRepo}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+		const stdout = await new Promise((resolve, reject) => {
+			execFile$1("gh", [
+				"api",
+				endpoint,
+				"--method",
+				"GET",
+				"--hostname",
+				getGitHubHost()
+			], {
+				encoding: "utf8",
+				timeout: FETCH_TIMEOUT,
+				maxBuffer: GH_API_MAX_BUFFER,
+				windowsHide: true,
+				env: {
+					...process.env,
+					GH_PROMPT_DISABLED: "1"
+				}
+			}, (error, output) => {
+				if (error) reject(error);
+				else resolve(output);
+			});
+		});
+		const data = JSON.parse(stdout);
+		if (typeof data.sha !== "string" || !Array.isArray(data.tree)) continue;
+		return {
+			sha: data.sha,
+			branch,
+			tree: data.tree
+		};
+	} catch {}
+	return null;
+}
+async function fetchTreeWithAvailableAuth(ownerRepo, branches, getToken) {
+	if (getToken) {
+		const tree = await fetchTreeWithToken(ownerRepo, branches, getToken);
+		if (tree) return tree;
+	}
+	return fetchTreeWithGitHubCli(ownerRepo, branches);
+}
+async function fetchRepoTree(ownerRepo, ref, getToken) {
+	const branches = ref ? [ref] : [
+		"HEAD",
+		"main",
+		"master"
+	];
+	if (_rateLimitedThisSession) return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
+	let rateLimited = false;
+	let authRetryable = false;
+	for (const branch of branches) {
+		const result = await fetchTreeBranch(ownerRepo, branch, null);
+		if (result.tree) return result.tree;
+		if (result.rateLimited) {
+			rateLimited = true;
+			break;
+		}
+		if (result.authRetryable) {
+			authRetryable = true;
+			break;
+		}
+	}
+	if (!(rateLimited || authRetryable)) return null;
+	if (rateLimited) _rateLimitedThisSession = true;
+	return fetchTreeWithAvailableAuth(ownerRepo, branches, getToken);
 }
 function getSkillFolderHashFromTree(tree, skillPath) {
 	let folderPath = skillPath.replace(/\\/g, "/");
@@ -2979,19 +3839,24 @@ const PRIORITY_PREFIXES = [
 	".continue/skills/",
 	".github/skills/",
 	".goose/skills/",
+	".grok/skills/",
 	".iflow/skills/",
 	".junie/skills/",
 	".kilocode/skills/",
+	".kimchi/skills/",
 	".kiro/skills/",
+	".minimax/skills/",
 	".mux/skills/",
 	".neovate/skills/",
 	".opencode/skills/",
 	".openhands/skills/",
 	".pi/skills/",
+	".posit/assistant/skills/",
 	".qoder/skills/",
 	".roo/skills/",
 	".trae/skills/",
 	".windsurf/skills/",
+	".zcode/skills/",
 	".zencoder/skills/"
 ];
 function findSkillMdPaths(tree, subpath) {
@@ -3001,7 +3866,7 @@ function findSkillMdPaths(tree, subpath) {
 	if (filtered.length === 0) return [];
 	const priorityResults = [];
 	const seen = /* @__PURE__ */ new Set();
-	const SKIP_DIRS = new Set([
+	const SKIP_DIRS = /* @__PURE__ */ new Set([
 		"node_modules",
 		".git",
 		"dist",
@@ -3030,9 +3895,13 @@ function findSkillMdPaths(tree, subpath) {
 				}
 				continue;
 			}
-			if (isContainer && parts.length === 3 && parts[2].toLowerCase() === "skill.md" && !SKIP_DIRS.has(parts[0]) && !SKIP_DIRS.has(parts[1])) {
-				const parentSkillMd = `${fullPrefix}${parts[0]}/SKILL.md`.toLowerCase();
-				if (!lowerSkillMdSet.has(parentSkillMd) && !seen.has(skillMd)) {
+			const skillDirs = parts.slice(0, -1);
+			const hasAncestorSkill = skillDirs.slice(0, -1).some((_, index) => {
+				const ancestorPath = skillDirs.slice(0, index + 1).join("/");
+				return lowerSkillMdSet.has(`${fullPrefix}${ancestorPath}/SKILL.md`.toLowerCase());
+			});
+			if (isContainer && parts.length >= 3 && parts.length <= 4 && parts.at(-1).toLowerCase() === "skill.md" && skillDirs.every((part) => !SKIP_DIRS.has(part)) && !hasAncestorSkill) {
+				if (!seen.has(skillMd)) {
 					priorityResults.push(skillMd);
 					seen.add(skillMd);
 				}
@@ -3067,7 +3936,7 @@ async function fetchSkillDownload(source, slug) {
 	}
 }
 function computeSnapshotHash(files) {
-	const hash = createHash("sha256");
+	const hash = createHash$1("sha256");
 	for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
 		hash.update(file.path);
 		hash.update(file.contents);
@@ -3075,6 +3944,7 @@ function computeSnapshotHash(files) {
 	return hash.digest("hex");
 }
 async function tryBlobInstall(ownerRepo, options = {}) {
+	if (options.ref !== void 0) return null;
 	const tree = await fetchRepoTree(ownerRepo, options.ref, options.getToken);
 	if (!tree) return null;
 	let skillMdPaths = findSkillMdPaths(tree, options.subpath);
@@ -3147,7 +4017,7 @@ async function tryBlobInstall(ownerRepo, options = {}) {
 		tree
 	};
 }
-var version$1 = "1.5.14";
+var version$1 = "1.5.23";
 const isCancelled$1 = (value) => typeof value === "symbol";
 const EVE_AGENT_LABEL = "eve agent";
 async function isSourcePrivate(source) {
@@ -3156,7 +4026,16 @@ async function isSourcePrivate(source) {
 	return isRepoPrivate(ownerRepo.owner, ownerRepo.repo);
 }
 function getLockSource(parsedUrl, normalizedSource) {
-	return parsedUrl.startsWith("git@") || parsedUrl.startsWith("ssh://") ? parsedUrl : normalizedSource;
+	if (parsedUrl.startsWith("git@") || parsedUrl.startsWith("ssh://")) return parsedUrl;
+	if (parsedUrl.startsWith("http://") || parsedUrl.startsWith("https://")) try {
+		if (new URL(parsedUrl).hostname !== "github.com") return parsedUrl;
+	} catch {
+		return normalizedSource;
+	}
+	return normalizedSource;
+}
+function getProjectLockSourceUrl(sourceType, sourceUrl) {
+	return sourceType === "git" || sourceType === "gitlab" ? sourceUrl : void 0;
 }
 function initTelemetry(version) {
 	setVersion(version);
@@ -3208,12 +4087,6 @@ function shortenPath$2(fullPath, cwd) {
 	if (fullPath === home || fullPath.startsWith(home + sep)) return "~" + fullPath.slice(home.length);
 	if (fullPath === cwd || fullPath.startsWith(cwd + sep)) return "." + fullPath.slice(cwd.length);
 	return fullPath;
-}
-function computeSingleFileSkillHash(contents) {
-	const hash = createHash("sha256");
-	hash.update("SKILL.md");
-	hash.update(contents);
-	return hash.digest("hex");
 }
 function formatList$1(items, maxShow = 5) {
 	if (items.length <= maxShow) return items.join(", ");
@@ -3297,13 +4170,6 @@ function buildResultLines(results, targetAgents) {
 	if (failedSymlinks.length > 0) lines.push(`  ${import_picocolors.default.yellow("copied:")} ${formatList$1(failedSymlinks)}`);
 	return lines;
 }
-function multiselect(opts) {
-	return fe({
-		...opts,
-		options: opts.options,
-		message: `${opts.message} ${import_picocolors.default.dim("(space to toggle)")}`
-	});
-}
 async function promptForAgents(message, choices) {
 	let lastSelected;
 	try {
@@ -3363,63 +4229,82 @@ async function selectAgentsInteractive(options) {
 	return selected;
 }
 setVersion(version$1);
+function isSkillsShPackUrl(url) {
+	try {
+		const parsed = new URL(url);
+		return parsed.hostname.replace(/^www\./, "") === "skills.sh" && /^\/p\/[^/]+/.test(parsed.pathname);
+	} catch {
+		return false;
+	}
+}
 async function handleWellKnownSkills(source, url, options, spinner) {
 	spinner.start("Discovering skills from well-known endpoint...");
-	const skills = await wellKnownProvider.fetchAllSkills(url);
+	let skills = [];
+	try {
+		skills = await wellKnownProvider.fetchAllSkills(url, { includeInternal: Boolean(options.skill && options.skill.length > 0 && !options.skill.includes("*")) });
+	} catch (error) {
+		if (error instanceof WellKnownScopeNotFoundError) {
+			spinner.stop(import_picocolors.default.red("No matching skills"));
+			log.error(error.message);
+			process.exit(1);
+		}
+	}
 	if (skills.length === 0) {
-		spinner.stop(import_picocolors.default.red("No skills found"));
-		Se(import_picocolors.default.red("No skills found at this URL. Make sure the server has a /.well-known/agent-skills/index.json or /.well-known/skills/index.json file."));
-		process.exit(1);
+		spinner.stop(import_picocolors.default.dim("No well-known skills found; trying direct download..."));
+		return false;
 	}
 	spinner.stop(`Found ${import_picocolors.default.green(skills.length)} skill${skills.length > 1 ? "s" : ""}`);
 	for (const skill of skills) {
-		M.info(`Skill: ${import_picocolors.default.cyan(skill.installName)}`);
-		M.message(import_picocolors.default.dim(skill.description));
-		if (skill.files.size > 1) M.message(import_picocolors.default.dim(`  Files: ${Array.from(skill.files.keys()).join(", ")}`));
+		log.info(`Skill: ${import_picocolors.default.cyan(skill.installName)}`);
+		log.message(import_picocolors.default.dim(skill.description));
+		if (skill.files.size > 1) log.message(import_picocolors.default.dim(`  Files: ${Array.from(skill.files.keys()).join(", ")}`));
 	}
 	if (options.list) {
 		console.log();
-		M.step(import_picocolors.default.bold("Available Skills"));
+		log.step(import_picocolors.default.bold("Available Skills"));
 		for (const skill of skills) {
-			M.message(`  ${import_picocolors.default.cyan(skill.installName)}`);
-			M.message(`    ${import_picocolors.default.dim(skill.description)}`);
-			if (skill.files.size > 1) M.message(`    ${import_picocolors.default.dim(`Files: ${skill.files.size}`)}`);
+			log.message(`  ${import_picocolors.default.cyan(skill.installName)}`);
+			log.message(`    ${import_picocolors.default.dim(skill.description)}`);
+			if (skill.files.size > 1) log.message(`    ${import_picocolors.default.dim(`Files: ${skill.files.size}`)}`);
 		}
 		console.log();
-		Se("Run without --list to install");
+		outro("Run without --list to install");
 		process.exit(0);
 	}
 	let selectedSkills;
 	if (options.skill?.includes("*")) {
 		selectedSkills = skills;
-		M.info(`Installing all ${skills.length} skills`);
+		log.info(`Installing all ${skills.length} skills`);
 	} else if (options.skill && options.skill.length > 0) {
 		selectedSkills = skills.filter((s) => options.skill.some((name) => s.installName.toLowerCase() === name.toLowerCase() || s.name.toLowerCase() === name.toLowerCase()));
 		if (selectedSkills.length === 0) {
-			M.error(`No matching skills found for: ${options.skill.join(", ")}`);
-			M.info("Available skills:");
-			for (const s of skills) M.message(`  - ${s.installName}`);
+			log.error(`No matching skills found for: ${options.skill.join(", ")}`);
+			log.info("Available skills:");
+			for (const s of skills) log.message(`  - ${s.installName}`);
 			process.exit(1);
 		}
 	} else if (skills.length === 1) {
 		selectedSkills = skills;
 		const firstSkill = skills[0];
-		M.info(`Skill: ${import_picocolors.default.cyan(firstSkill.installName)}`);
+		log.info(`Skill: ${import_picocolors.default.cyan(firstSkill.installName)}`);
 	} else if (options.yes) {
 		selectedSkills = skills;
-		M.info(`Installing all ${skills.length} skills`);
+		log.info(`Installing all ${skills.length} skills`);
 	} else {
-		const selected = await multiselect({
+		const selected = await searchMultiselect({
 			message: "Select skills to install",
-			options: skills.map((s) => ({
+			items: skills.map((s) => ({
 				value: s,
 				label: s.installName,
-				hint: s.description.length > 60 ? s.description.slice(0, 57) + "..." : s.description
+				hint: s.description.length > 60 ? s.description.slice(0, 57) + "…" : s.description
 			})),
-			required: true
+			initialSelected: isSkillsShPackUrl(url) ? skills : void 0,
+			required: true,
+			maxVisible: 20,
+			selectAll: true
 		});
-		if (pD(selected)) {
-			xe("Installation cancelled");
+		if (isCancelled$1(selected)) {
+			cancel("Installation cancelled");
 			process.exit(0);
 		}
 		selectedSkills = selected;
@@ -3428,31 +4313,31 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 	const validAgents = Object.keys(agents);
 	if (options.agent?.includes("*")) {
 		targetAgents = validAgents;
-		M.info(`Installing to all ${targetAgents.length} agents`);
+		log.info(`Installing to all ${targetAgents.length} agents`);
 	} else if (options.agent && options.agent.length > 0) {
 		const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 		if (invalidAgents.length > 0) {
-			M.error(`Invalid agents: ${invalidAgents.join(", ")}`);
-			M.info(`Valid agents: ${validAgents.join(", ")}`);
+			log.error(`Invalid agents: ${invalidAgents.join(", ")}`);
+			log.info(`Valid agents: ${validAgents.join(", ")}`);
 			process.exit(1);
 		}
 		targetAgents = options.agent;
 	} else {
-		spinner.start("Loading agents...");
+		spinner.start("Loading agents…");
 		const installedAgents = await detectInstalledAgents();
 		const totalAgents = Object.keys(agents).length;
 		spinner.stop(`${totalAgents} agents`);
 		if (installedAgents.length === 0) if (options.yes) {
 			targetAgents = validAgents;
-			M.info("Installing to all agents");
+			log.info("Installing to all agents");
 		} else {
-			M.info("Select agents to install skills to");
+			log.info("Select agents to install skills to");
 			const selected = await promptForAgents("Which agents do you want to install to?", Object.entries(agents).map(([key, config]) => ({
 				value: key,
 				label: config.displayName
 			})));
-			if (pD(selected)) {
-				xe("Installation cancelled");
+			if (isCancel(selected)) {
+				cancel("Installation cancelled");
 				process.exit(0);
 			}
 			targetAgents = selected;
@@ -3461,12 +4346,12 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 			targetAgents = ensureUniversalAgents(installedAgents);
 			if (installedAgents.length === 1) {
 				const firstAgent = installedAgents[0];
-				M.info(`Installing to: ${import_picocolors.default.cyan(agents[firstAgent].displayName)}`);
-			} else M.info(`Installing to: ${installedAgents.map((a) => import_picocolors.default.cyan(agents[a].displayName)).join(", ")}`);
+				log.info(`Installing to: ${import_picocolors.default.cyan(agents[firstAgent].displayName)}`);
+			} else log.info(`Installing to: ${installedAgents.map((a) => import_picocolors.default.cyan(agents[a].displayName)).join(", ")}`);
 		} else {
 			const selected = await selectAgentsInteractive({ global: options.global });
-			if (pD(selected)) {
-				xe("Installation cancelled");
+			if (isCancel(selected)) {
+				cancel("Installation cancelled");
 				process.exit(0);
 			}
 			targetAgents = selected;
@@ -3475,7 +4360,7 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 	let installGlobally = options.global ?? false;
 	const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== void 0);
 	if (options.global === void 0 && !options.yes && supportsGlobal) {
-		const scope = await ve({
+		const scope = await select({
 			message: "Installation scope",
 			options: [{
 				value: false,
@@ -3487,8 +4372,8 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 				hint: "Install in home directory (available across all projects)"
 			}]
 		});
-		if (pD(scope)) {
-			xe("Installation cancelled");
+		if (isCancel(scope)) {
+			cancel("Installation cancelled");
 			process.exit(0);
 		}
 		installGlobally = scope;
@@ -3496,7 +4381,7 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 	let installMode = options.copy ? "copy" : "symlink";
 	const uniqueDirs = new Set(targetAgents.map((a) => agents[a].skillsDir));
 	if (!options.copy && !options.yes && uniqueDirs.size > 1) {
-		const modeChoice = await ve({
+		const modeChoice = await select({
 			message: "Installation method",
 			options: [{
 				value: "symlink",
@@ -3508,8 +4393,8 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 				hint: "Independent copies for each agent"
 			}]
 		});
-		if (pD(modeChoice)) {
-			xe("Installation cancelled");
+		if (isCancel(modeChoice)) {
+			cancel("Installation cancelled");
 			process.exit(0);
 		}
 		installMode = modeChoice;
@@ -3538,17 +4423,17 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 		if (overwriteAgents.length > 0) summaryLines.push(`  ${import_picocolors.default.yellow("overwrites:")} ${formatList$1(overwriteAgents)}`);
 	}
 	console.log();
-	Me(summaryLines.join("\n"), "Installation Summary");
+	note(summaryLines.join("\n"), "Installation Summary");
 	if (!options.yes) {
-		const confirmed = await ye({ message: "Proceed with installation?" });
-		if (pD(confirmed) || !confirmed) {
-			xe("Installation cancelled");
+		const confirmed = await confirm({ message: "Proceed with installation?" });
+		if (isCancel(confirmed) || !confirmed) {
+			cancel("Installation cancelled");
 			process.exit(0);
 		}
 	}
 	const sourceIdentifier = wellKnownProvider.getSourceIdentifier(url);
 	const wellKnownPrivacyPromise = isSourcePrivate(sourceIdentifier).catch(() => null);
-	spinner.start("Installing skills...");
+	spinner.start("Installing skills…");
 	const results = [];
 	for (const skill of selectedSkills) for (const agent of targetAgents) {
 		const result = await installWellKnownSkillForAgent(skill, agent, {
@@ -3574,6 +4459,8 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 		agents: targetAgents.join(","),
 		...installGlobally && { global: "1" },
 		skillFiles: JSON.stringify(skillFiles),
+		installUrl: url,
+		metadata: options.metadata,
 		sourceType: "well-known"
 	});
 	if (successful.length > 0 && installGlobally) {
@@ -3583,7 +4470,9 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 				source: sourceIdentifier,
 				sourceType: "well-known",
 				sourceUrl: skill.sourceUrl,
-				skillFolderHash: ""
+				skillFolderHash: "",
+				sourceBaseUrl: url,
+				wellKnownDigest: computeWellKnownSkillDigest(skill)
 			});
 		} catch {}
 	}
@@ -3596,8 +4485,10 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 				const computedHash = await computeSkillFolderHash(installDir);
 				await addSkillToLocalLock(skill.installName, {
 					source: sourceIdentifier,
+					sourceUrl: url,
 					sourceType: "well-known",
-					computedHash
+					computedHash,
+					wellKnownDigest: computeWellKnownSkillDigest(skill)
 				}, cwd);
 			}
 		} catch {}
@@ -3617,9 +4508,13 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 			const firstResult = skillResults[0];
 			if (firstResult.mode === "copy") {
 				resultLines.push(`${import_picocolors.default.green("✓")} ${skillName} ${import_picocolors.default.dim("(copied)")}`);
+				const shortPathsSet = /* @__PURE__ */ new Set();
 				for (const r of skillResults) {
 					const shortPath = shortenPath$2(r.path, cwd);
-					resultLines.push(`  ${import_picocolors.default.dim("→")} ${shortPath}`);
+					if (!shortPathsSet.has(shortPath)) {
+						shortPathsSet.add(shortPath);
+						resultLines.push(`  ${import_picocolors.default.dim("→")} ${shortPath}`);
+					}
 				}
 			} else {
 				if (firstResult.canonicalPath) {
@@ -3630,27 +4525,28 @@ async function handleWellKnownSkills(source, url, options, spinner) {
 			}
 		}
 		const title = import_picocolors.default.green(`Installed ${skillCount} skill${skillCount !== 1 ? "s" : ""}`);
-		Me(resultLines.join("\n"), title);
+		note(resultLines.join("\n"), title);
 		if (symlinkFailures.length > 0) {
-			M.warn(import_picocolors.default.yellow(`Symlinks failed for: ${formatList$1(copiedAgents)}`));
-			M.message(import_picocolors.default.dim("  Files were copied instead. On Windows, enable Developer Mode for symlink support."));
+			log.warn(import_picocolors.default.yellow(`Symlinks failed for: ${formatList$1(copiedAgents)}`));
+			log.message(import_picocolors.default.dim("  Files were copied instead. On Windows, enable Developer Mode for symlink support."));
 		}
 	}
 	if (failed.length > 0) {
 		console.log();
-		M.error(import_picocolors.default.red(`Failed to install ${failed.length}`));
-		for (const r of failed) M.message(`  ${import_picocolors.default.red("✗")} ${r.skill} → ${r.agent}: ${import_picocolors.default.dim(r.error)}`);
+		log.error(import_picocolors.default.red(`Failed to install ${failed.length}`));
+		for (const r of failed) log.message(`  ${import_picocolors.default.red("✗")} ${r.skill} → ${r.agent}: ${import_picocolors.default.dim(r.error)}`);
 	}
 	console.log();
-	Se(import_picocolors.default.green("Done!") + import_picocolors.default.dim("  Review skills before use; they run with full agent permissions."));
+	outro(import_picocolors.default.green("Done!") + import_picocolors.default.dim("  Review skills before use; they run with full agent permissions."));
 	await promptForFindSkills(options, targetAgents);
+	return true;
 }
 async function runAdd(args, options = {}) {
 	const source = args[0];
 	let installTipShown = false;
 	const showInstallTip = () => {
 		if (installTipShown) return;
-		M.message(import_picocolors.default.dim("Tip: use the --yes (-y) and --global (-g) flags to install without prompts."));
+		log.message(import_picocolors.default.dim("Tip: use the --yes (-y) and --global (-g) flags to install without prompts."));
 		installTipShown = true;
 	};
 	if (!source) {
@@ -3679,43 +4575,55 @@ async function runAdd(args, options = {}) {
 		}
 	}
 	console.log();
-	if (!agentResult.isAgent) Ie(import_picocolors.default.bgCyan(import_picocolors.default.black(" skills ")));
-	if (agentResult.isAgent) M.info(import_picocolors.default.bgCyan(import_picocolors.default.black(import_picocolors.default.bold(` ${agentResult.agent.name} `))) + " Agent detected — installing non-interactively");
+	if (!agentResult.isAgent) intro(import_picocolors.default.bgCyan(import_picocolors.default.black(" skills ")));
+	if (agentResult.isAgent) log.info(import_picocolors.default.bgCyan(import_picocolors.default.black(import_picocolors.default.bold(` ${agentResult.agent.name} `))) + " Agent detected — installing non-interactively");
 	else if (!process.stdin.isTTY) showInstallTip();
 	let tempDir = null;
 	try {
-		const spinner = Y();
-		spinner.start("Parsing source...");
+		const spinner$3 = spinner();
+		spinner$3.start("Parsing source…");
 		const parsed = parseSource(source);
-		spinner.stop(`Source: ${parsed.type === "local" ? parsed.localPath : parsed.url}${parsed.ref ? ` @ ${import_picocolors.default.yellow(parsed.ref)}` : ""}${parsed.subpath ? ` (${parsed.subpath})` : ""}${parsed.skillFilter ? ` ${import_picocolors.default.dim("@")}${import_picocolors.default.cyan(parsed.skillFilter)}` : ""}`);
-		const ownerRepoRaw = getOwnerRepo(parsed);
+		let directDownload = parsed.type === "download";
+		spinner$3.stop(`Source: ${parsed.type === "local" ? parsed.localPath : parsed.url}${parsed.ref ? ` @ ${import_picocolors.default.yellow(parsed.ref)}` : ""}${parsed.subpath ? ` (${parsed.subpath})` : ""}${parsed.skillFilter ? ` ${import_picocolors.default.dim("@")}${import_picocolors.default.cyan(parsed.skillFilter)}` : ""}`);
+		const ownerRepoRaw = parsed.type === "well-known" || parsed.type === "download" ? null : getOwnerRepo(parsed);
 		const repoPrivacyPromise = (() => {
+			if (parsed.type !== "github") return Promise.resolve(null);
 			if (!ownerRepoRaw) return Promise.resolve(null);
 			const ownerRepo = parseOwnerRepo(ownerRepoRaw);
 			if (!ownerRepo) return Promise.resolve(null);
 			return isRepoPrivate(ownerRepo.owner, ownerRepo.repo).catch(() => null);
 		})();
 		if (parsed.type === "well-known") {
-			await handleWellKnownSkills(source, parsed.url, options, spinner);
-			return;
+			if (await handleWellKnownSkills(source, parsed.url, options, spinner$3)) return;
+			directDownload = true;
 		}
 		if (parsed.skillFilter) {
 			options.skill = options.skill || [];
 			if (!options.skill.includes(parsed.skillFilter)) options.skill.push(parsed.skillFilter);
 		}
-		const includeInternal = !!(options.skill && options.skill.length > 0);
+		const includeInternal = !!(options.skill && options.skill.length > 0 && !options.skill.includes("*"));
 		let skills;
 		let blobResult = null;
 		if (parsed.type === "local") {
-			spinner.start("Validating local path...");
+			spinner$3.start("Validating local path…");
 			if (!existsSync(parsed.localPath)) {
-				spinner.stop(import_picocolors.default.red("Path not found"));
-				Se(import_picocolors.default.red(`Local path does not exist: ${parsed.localPath}`));
+				spinner$3.stop(import_picocolors.default.red("Path not found"));
+				outro(import_picocolors.default.red(`Local path does not exist: ${parsed.localPath}`));
 				process.exit(1);
 			}
-			spinner.stop("Local path validated");
-			spinner.start("Discovering skills...");
+			spinner$3.stop("Local path validated");
+			spinner$3.start("Discovering skills…");
 			skills = await discoverSkills(parsed.localPath, parsed.subpath, {
+				includeInternal,
+				fullDepth: options.fullDepth
+			});
+		} else if (parsed.type === "well-known" || parsed.type === "download") {
+			spinner$3.start("Downloading source...");
+			const downloaded = await downloadSource(parsed.url);
+			tempDir = downloaded.tempDir;
+			spinner$3.stop(`Downloaded ${downloaded.kind === "skill-md" ? "SKILL.md file" : "archive"}`);
+			spinner$3.start("Discovering skills...");
+			skills = await discoverSkills(downloaded.rootDir, parsed.subpath, {
 				includeInternal,
 				fullDepth: options.fullDepth
 			});
@@ -3729,7 +4637,7 @@ async function runAdd(args, options = {}) {
 			const owner = ownerRepo?.split("/")[0]?.toLowerCase();
 			const isSelfHostedRepo = !!ownerRepo && Object.hasOwn(BLOB_ALLOWED_REPOS, ownerRepo.toLowerCase());
 			if (ownerRepo && owner && (isSelfHostedRepo || BLOB_ALLOWED_OWNERS.includes(owner))) {
-				spinner.start("Fetching skills...");
+				spinner$3.start("Fetching skills…");
 				blobResult = await tryBlobInstall(ownerRepo, {
 					subpath: parsed.subpath,
 					skillFilter: parsed.skillFilter,
@@ -3737,41 +4645,41 @@ async function runAdd(args, options = {}) {
 					getToken: getGitHubToken,
 					includeInternal
 				});
-				if (!blobResult) spinner.stop(import_picocolors.default.dim("Falling back to clone..."));
+				if (!blobResult) spinner$3.stop(import_picocolors.default.dim("Falling back to clone…"));
 			}
 			if (blobResult) {
 				skills = blobResult.skills;
-				spinner.stop(`Found ${import_picocolors.default.green(skills.length)} skill${skills.length > 1 ? "s" : ""}`);
+				spinner$3.stop(`Found ${import_picocolors.default.green(skills.length)} skill${skills.length > 1 ? "s" : ""}`);
 			} else {
-				spinner.start("Cloning repository...");
+				spinner$3.start("Cloning repository…");
 				tempDir = await cloneRepo(parsed.url, parsed.ref);
-				spinner.stop("Repository cloned");
-				spinner.start("Discovering skills...");
+				spinner$3.stop("Repository cloned");
+				spinner$3.start("Discovering skills…");
 				skills = await discoverSkills(tempDir, parsed.subpath, {
 					includeInternal,
 					fullDepth: options.fullDepth
 				});
 			}
 		} else {
-			spinner.start("Cloning repository...");
+			spinner$3.start("Cloning repository…");
 			tempDir = await cloneRepo(parsed.url, parsed.ref);
-			spinner.stop("Repository cloned");
-			spinner.start("Discovering skills...");
+			spinner$3.stop("Repository cloned");
+			spinner$3.start("Discovering skills…");
 			skills = await discoverSkills(tempDir, parsed.subpath, {
 				includeInternal,
 				fullDepth: options.fullDepth
 			});
 		}
 		if (skills.length === 0) {
-			spinner.stop(import_picocolors.default.red("No skills found"));
-			Se(import_picocolors.default.red("No valid skills found. Skills require a SKILL.md with name and description."));
+			spinner$3.stop(import_picocolors.default.red("No skills found"));
+			outro(import_picocolors.default.red("No valid skills found. Skills require a SKILL.md with name and description."));
 			await cleanup(tempDir);
 			process.exit(1);
 		}
-		if (!blobResult) spinner.stop(`Found ${import_picocolors.default.green(skills.length)} skill${skills.length > 1 ? "s" : ""}`);
+		if (!blobResult) spinner$3.stop(`Found ${import_picocolors.default.green(skills.length)} skill${skills.length > 1 ? "s" : ""}`);
 		if (options.list) {
 			console.log();
-			M.step(import_picocolors.default.bold("Available Skills"));
+			log.step(import_picocolors.default.bold("Available Skills"));
 			const groupedSkills = {};
 			const ungroupedSkills = [];
 			for (const skill of skills) if (skill.pluginName) {
@@ -3784,45 +4692,45 @@ async function runAdd(args, options = {}) {
 				const title = group.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 				console.log(import_picocolors.default.bold(title));
 				for (const skill of groupedSkills[group]) {
-					M.message(`  ${import_picocolors.default.cyan(getSkillDisplayName(skill))}`);
-					M.message(`    ${import_picocolors.default.dim(skill.description)}`);
+					log.message(`  ${import_picocolors.default.cyan(getSkillDisplayName(skill))}`);
+					log.message(`    ${import_picocolors.default.dim(skill.description)}`);
 				}
 				console.log();
 			}
 			if (ungroupedSkills.length > 0) {
 				if (sortedGroups.length > 0) console.log(import_picocolors.default.bold("General"));
 				for (const skill of ungroupedSkills) {
-					M.message(`  ${import_picocolors.default.cyan(getSkillDisplayName(skill))}`);
-					M.message(`    ${import_picocolors.default.dim(skill.description)}`);
+					log.message(`  ${import_picocolors.default.cyan(getSkillDisplayName(skill))}`);
+					log.message(`    ${import_picocolors.default.dim(skill.description)}`);
 				}
 			}
 			console.log();
-			Se("Use --skill <name> to install specific skills");
+			outro("Use --skill <name> to install specific skills");
 			await cleanup(tempDir);
 			process.exit(0);
 		}
 		let selectedSkills;
 		if (options.skill?.includes("*")) {
 			selectedSkills = skills;
-			M.info(`Installing all ${skills.length} skills`);
+			log.info(`Installing all ${skills.length} skills`);
 		} else if (options.skill && options.skill.length > 0) {
 			selectedSkills = filterSkills(skills, options.skill);
 			if (selectedSkills.length === 0) {
-				M.error(`No matching skills found for: ${options.skill.join(", ")}`);
-				M.info("Available skills:");
-				for (const s of skills) M.message(`  - ${getSkillDisplayName(s)}`);
+				log.error(`No matching skills found for: ${options.skill.join(", ")}`);
+				log.info("Available skills:");
+				for (const s of skills) log.message(`  - ${getSkillDisplayName(s)}`);
 				await cleanup(tempDir);
 				process.exit(1);
 			}
-			M.info(`Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? "s" : ""}: ${selectedSkills.map((s) => import_picocolors.default.cyan(getSkillDisplayName(s))).join(", ")}`);
+			log.info(`Selected ${selectedSkills.length} skill${selectedSkills.length !== 1 ? "s" : ""}: ${selectedSkills.map((s) => import_picocolors.default.cyan(getSkillDisplayName(s))).join(", ")}`);
 		} else if (skills.length === 1) {
 			selectedSkills = skills;
 			const firstSkill = skills[0];
-			M.info(`Skill: ${import_picocolors.default.cyan(getSkillDisplayName(firstSkill))}`);
-			M.message(import_picocolors.default.dim(firstSkill.description));
+			log.info(`Skill: ${import_picocolors.default.cyan(getSkillDisplayName(firstSkill))}`);
+			log.message(import_picocolors.default.dim(firstSkill.description));
 		} else if (options.yes) {
 			selectedSkills = skills;
-			M.info(`Installing all ${skills.length} skills`);
+			log.info(`Installing all ${skills.length} skills`);
 		} else {
 			const sortedSkills = [...skills].sort((a, b) => {
 				if (a.pluginName && !b.pluginName) return -1;
@@ -3831,78 +4739,69 @@ async function runAdd(args, options = {}) {
 				return getSkillDisplayName(a).localeCompare(getSkillDisplayName(b));
 			});
 			const hasGroups = sortedSkills.some((s) => s.pluginName);
-			let selected;
-			if (hasGroups) {
-				const kebabToTitle = (s) => s.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-				const grouped = {};
-				for (const s of sortedSkills) {
-					const groupName = s.pluginName ? kebabToTitle(s.pluginName) : "Other";
-					if (!grouped[groupName]) grouped[groupName] = [];
-					grouped[groupName].push({
-						value: s,
-						label: getSkillDisplayName(s),
-						hint: s.description.length > 60 ? s.description.slice(0, 57) + "..." : s.description
-					});
-				}
-				selected = await be({
-					message: `Select skills to install ${import_picocolors.default.dim("(space to toggle)")}`,
-					options: grouped,
-					required: true
-				});
-			} else selected = await multiselect({
-				message: "Select skills to install",
-				options: sortedSkills.map((s) => ({
-					value: s,
-					label: getSkillDisplayName(s),
-					hint: s.description.length > 60 ? s.description.slice(0, 57) + "..." : s.description
-				})),
-				required: true
+			const kebabToTitle = (s) => s.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+			const skillChoices = sortedSkills.map((s) => ({
+				value: s,
+				label: getSkillDisplayName(s),
+				group: hasGroups ? s.pluginName ? kebabToTitle(s.pluginName) : "Other" : void 0,
+				detail: s.description
+			}));
+			const selected = await searchMultiselect({
+				message: hasGroups ? `Select skills to install ${import_picocolors.default.dim("(space to toggle)")}` : "Select skills to install",
+				items: skillChoices,
+				required: true,
+				maxVisible: 20,
+				searchable: !hasGroups,
+				showDetail: true,
+				showSelectedSummary: false,
+				selectGroups: hasGroups,
+				selectAll: true
 			});
-			if (pD(selected)) {
-				xe("Installation cancelled");
+			if (isCancelled$1(selected)) {
+				cancel("Installation cancelled");
 				await cleanup(tempDir);
 				process.exit(0);
 			}
 			selectedSkills = selected;
 		}
 		const ownerRepoForAudit = getOwnerRepo(parsed);
-		const auditPromise = ownerRepoForAudit ? fetchAuditData(ownerRepoForAudit, selectedSkills.map((s) => getSkillDisplayName(s))) : Promise.resolve(null);
+		const auditPromise = ownerRepoForAudit ? repoPrivacyPromise.then((isPrivate) => isPrivate === false ? fetchAuditData(ownerRepoForAudit, selectedSkills.map((s) => getSkillDisplayName(s))) : null) : Promise.resolve(null);
 		let targetAgents;
 		const validAgents = Object.keys(agents);
 		if (options.agent?.includes("*")) {
 			targetAgents = validAgents;
-			M.info(`Installing to all ${targetAgents.length} agents`);
+			log.info(`Installing to all ${targetAgents.length} agents`);
 		} else if (options.agent && options.agent.length > 0) {
 			const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 			if (invalidAgents.length > 0) {
-				M.error(`Invalid agents: ${invalidAgents.join(", ")}`);
-				M.info(`Valid agents: ${validAgents.join(", ")}`);
+				log.error(`Invalid agents: ${invalidAgents.join(", ")}`);
+				log.info(`Valid agents: ${validAgents.join(", ")}`);
 				await cleanup(tempDir);
 				process.exit(1);
 			}
 			targetAgents = options.agent;
 		} else {
-			spinner.start("Loading agents...");
+			spinner$3.start("Loading agents…");
 			const installedAgents = await detectInstalledAgents();
 			const totalAgents = Object.keys(agents).length;
-			spinner.stop(`${totalAgents} agents`);
+			spinner$3.stop(`${totalAgents} agents`);
 			if (installedAgents.includes("eve") && (options.yes || !agentResult.isAgent)) {
-				const useEve = options.yes ? true : await ye({
+				const useEve = options.yes ? true : await confirm({
 					message: formatEveInstallPromptMessage(selectedSkills),
 					initialValue: true
 				});
-				if (pD(useEve)) {
-					xe("Installation cancelled");
+				if (isCancel(useEve)) {
+					cancel("Installation cancelled");
 					await cleanup(tempDir);
 					process.exit(0);
 				}
 				if (useEve) {
 					targetAgents = ["eve"];
-					M.info(`Installing to: ${import_picocolors.default.cyan(EVE_AGENT_LABEL)}`);
+					log.info(`Installing to: ${import_picocolors.default.cyan(EVE_AGENT_LABEL)}`);
 				} else {
 					const selected = await selectAgentsInteractive({ global: options.global });
-					if (pD(selected)) {
-						xe("Installation cancelled");
+					if (isCancel(selected)) {
+						cancel("Installation cancelled");
 						await cleanup(tempDir);
 						process.exit(0);
 					}
@@ -3910,15 +4809,15 @@ async function runAdd(args, options = {}) {
 				}
 			} else if (installedAgents.length === 0) if (options.yes) {
 				targetAgents = validAgents;
-				M.info("Installing to all agents");
+				log.info("Installing to all agents");
 			} else {
-				M.info("Select agents to install skills to");
+				log.info("Select agents to install skills to");
 				const selected = await promptForAgents("Which agents do you want to install to?", Object.entries(agents).filter(([key]) => key !== "eve").map(([key, config]) => ({
 					value: key,
 					label: config.displayName
 				})));
-				if (pD(selected)) {
-					xe("Installation cancelled");
+				if (isCancel(selected)) {
+					cancel("Installation cancelled");
 					await cleanup(tempDir);
 					process.exit(0);
 				}
@@ -3928,12 +4827,12 @@ async function runAdd(args, options = {}) {
 				targetAgents = ensureUniversalAgents(installedAgents);
 				if (installedAgents.length === 1) {
 					const firstAgent = installedAgents[0];
-					M.info(`Installing to: ${import_picocolors.default.cyan(agents[firstAgent].displayName)}`);
-				} else M.info(`Installing to: ${installedAgents.map((a) => import_picocolors.default.cyan(agents[a].displayName)).join(", ")}`);
+					log.info(`Installing to: ${import_picocolors.default.cyan(agents[firstAgent].displayName)}`);
+				} else log.info(`Installing to: ${installedAgents.map((a) => import_picocolors.default.cyan(agents[a].displayName)).join(", ")}`);
 			} else {
 				const selected = await selectAgentsInteractive({ global: options.global });
-				if (pD(selected)) {
-					xe("Installation cancelled");
+				if (isCancel(selected)) {
+					cancel("Installation cancelled");
 					await cleanup(tempDir);
 					process.exit(0);
 				}
@@ -3946,7 +4845,7 @@ async function runAdd(args, options = {}) {
 			const availableSubagents = getEveSubagents(process.cwd());
 			if (options.subagent && options.subagent.length > 0) eveSubagentTargets = options.subagent.map((s) => s === "root" || s === "." ? void 0 : s);
 			else if (availableSubagents.length > 0 && !options.yes) {
-				const selectedSubagents = await fe({
+				const selectedSubagents = await multiselect({
 					message: "Where should Eve skills be installed?",
 					options: [{
 						value: "",
@@ -3960,8 +4859,8 @@ async function runAdd(args, options = {}) {
 					initialValues: [""],
 					required: true
 				});
-				if (pD(selectedSubagents)) {
-					xe("Installation cancelled");
+				if (isCancel(selectedSubagents)) {
+					cancel("Installation cancelled");
 					await cleanup(tempDir);
 					process.exit(0);
 				}
@@ -3972,7 +4871,7 @@ async function runAdd(args, options = {}) {
 		let installGlobally = options.global ?? false;
 		const supportsGlobal = targetAgents.some((a) => agents[a].globalSkillsDir !== void 0);
 		if (options.global === void 0 && !options.yes && supportsGlobal) {
-			const scope = await ve({
+			const scope = await select({
 				message: "Installation scope",
 				options: [{
 					value: false,
@@ -3984,8 +4883,8 @@ async function runAdd(args, options = {}) {
 					hint: "Install in home directory (available across all projects)"
 				}]
 			});
-			if (pD(scope)) {
-				xe("Installation cancelled");
+			if (isCancel(scope)) {
+				cancel("Installation cancelled");
 				await cleanup(tempDir);
 				process.exit(0);
 			}
@@ -3995,7 +4894,7 @@ async function runAdd(args, options = {}) {
 		const allEve = installTargets.every((t) => t.agent === "eve");
 		const uniqueDirs = new Set(installTargets.map((t) => t.subagent ? `eve:subagent:${t.subagent}` : agents[t.agent].skillsDir));
 		if (!options.copy && !options.yes && uniqueDirs.size > 1 && !allEve) {
-			const modeChoice = await ve({
+			const modeChoice = await select({
 				message: "Installation method",
 				options: [{
 					value: "symlink",
@@ -4007,8 +4906,8 @@ async function runAdd(args, options = {}) {
 					hint: "Independent copies for each agent"
 				}]
 			});
-			if (pD(modeChoice)) {
-				xe("Installation cancelled");
+			if (isCancel(modeChoice)) {
+				cancel("Installation cancelled");
 				await cleanup(tempDir);
 				process.exit(0);
 			}
@@ -4066,7 +4965,7 @@ async function runAdd(args, options = {}) {
 			printSkillSummary(ungroupedSummary);
 		}
 		console.log();
-		Me(summaryLines.join("\n"), "Installation Summary");
+		note(summaryLines.join("\n"), "Installation Summary");
 		try {
 			const auditData = await auditPromise;
 			if (auditData && ownerRepoForAudit) {
@@ -4074,18 +4973,18 @@ async function runAdd(args, options = {}) {
 					slug: getSkillDisplayName(s),
 					displayName: getSkillDisplayName(s)
 				})), ownerRepoForAudit);
-				if (securityLines.length > 0) Me(securityLines.join("\n"), "Security Risk Assessments");
+				if (securityLines.length > 0) note(securityLines.join("\n"), "Security Risk Assessments");
 			}
 		} catch {}
 		if (!options.yes) {
-			const confirmed = await ye({ message: "Proceed with installation?" });
-			if (pD(confirmed) || !confirmed) {
-				xe("Installation cancelled");
+			const confirmed = await confirm({ message: "Proceed with installation?" });
+			if (isCancel(confirmed) || !confirmed) {
+				cancel("Installation cancelled");
 				await cleanup(tempDir);
 				process.exit(0);
 			}
 		}
-		spinner.start("Installing skills...");
+		spinner$3.start("Installing skills…");
 		const results = [];
 		for (const skill of selectedSkills) for (const target of installTargets) {
 			const { agent, subagent } = target;
@@ -4100,17 +4999,7 @@ async function runAdd(args, options = {}) {
 					mode: installMode,
 					eveSubagent: subagent
 				});
-			} else if (tempDir && skill.path === tempDir && skill.rawContent) result = await installBlobSkillForAgent({
-				installName: skill.name,
-				files: [{
-					path: "SKILL.md",
-					contents: skill.rawContent
-				}]
-			}, agent, {
-				global: installGlobally,
-				mode: installMode
-			});
-			else result = await installSkillForAgent(skill, agent, {
+			} else result = await installSkillForAgent(skill, agent, {
 				global: installGlobally,
 				mode: installMode,
 				eveSubagent: subagent
@@ -4122,7 +5011,7 @@ async function runAdd(args, options = {}) {
 				...result
 			});
 		}
-		spinner.stop("Installation complete");
+		spinner$3.stop("Installation complete");
 		console.log();
 		const successful = results.filter((r) => r.success);
 		const failed = results.filter((r) => !r.success);
@@ -4131,8 +5020,9 @@ async function runAdd(args, options = {}) {
 		else if (tempDir && skill.path === tempDir) skillFiles[skill.name] = "SKILL.md";
 		else if (tempDir && skill.path.startsWith(tempDir + sep)) skillFiles[skill.name] = skill.path.slice(tempDir.length + 1).split(sep).join("/") + "/SKILL.md";
 		else continue;
-		const normalizedSource = getOwnerRepo(parsed);
-		const lockSource = getLockSource(parsed.url, normalizedSource);
+		const normalizedSource = directDownload ? null : getOwnerRepo(parsed);
+		const lockSource = directDownload ? null : getLockSource(parsed.url, normalizedSource);
+		const projectLockSourceUrl = directDownload ? void 0 : getProjectLockSourceUrl(parsed.type, parsed.url);
 		if (normalizedSource) if (parseOwnerRepo(normalizedSource)) {
 			if (await repoPrivacyPromise === false) track({
 				event: "install",
@@ -4140,7 +5030,8 @@ async function runAdd(args, options = {}) {
 				skills: selectedSkills.map((s) => s.name).join(","),
 				agents: targetAgents.join(","),
 				...installGlobally && { global: "1" },
-				skillFiles: JSON.stringify(skillFiles)
+				skillFiles: JSON.stringify(skillFiles),
+				metadata: options.metadata
 			});
 		} else track({
 			event: "install",
@@ -4148,7 +5039,8 @@ async function runAdd(args, options = {}) {
 			skills: selectedSkills.map((s) => s.name).join(","),
 			agents: targetAgents.join(","),
 			...installGlobally && { global: "1" },
-			skillFiles: JSON.stringify(skillFiles)
+			skillFiles: JSON.stringify(skillFiles),
+			metadata: options.metadata
 		});
 		if (successful.length > 0 && installGlobally && normalizedSource) {
 			const successfulSkillNames = new Set(successful.map((r) => r.skill));
@@ -4181,17 +5073,18 @@ async function runAdd(args, options = {}) {
 				} catch {}
 			}
 		}
-		if (successful.length > 0 && !installGlobally) {
+		if (successful.length > 0 && !installGlobally && !directDownload) {
 			const successfulSkillNames = new Set(successful.map((r) => r.skill));
 			const eveSubagents = targetAgents.includes("eve") ? eveSubagentTargets.map((s) => s ?? "") : void 0;
 			const recordSubagents = eveSubagents && (eveSubagents.length > 1 || eveSubagents.some((s) => s !== ""));
 			for (const skill of selectedSkills) {
 				const skillDisplayName = getSkillDisplayName(skill);
 				if (successfulSkillNames.has(skillDisplayName)) try {
-					const computedHash = blobResult && "snapshotHash" in skill ? skill.snapshotHash : tempDir && skill.path === tempDir && skill.rawContent ? computeSingleFileSkillHash(skill.rawContent) : await computeSkillFolderHash(skill.path);
+					const computedHash = blobResult && "snapshotHash" in skill ? skill.snapshotHash : await computeSkillFolderHash(skill.path);
 					const skillPathValue = skillFiles[skill.name];
 					await addSkillToLocalLock(skill.name, {
 						source: lockSource || parsed.url,
+						...projectLockSourceUrl && { sourceUrl: projectLockSourceUrl },
 						ref: parsed.ref,
 						sourceType: parsed.type,
 						...skillPathValue && { skillPath: skillPathValue },
@@ -4225,9 +5118,13 @@ async function runAdd(args, options = {}) {
 					const firstResult = skillResults[0];
 					if (firstResult.mode === "copy") {
 						resultLines.push(`${import_picocolors.default.green("✓")} ${entry.skill} ${import_picocolors.default.dim("(copied)")}`);
+						const shortPathsSet = /* @__PURE__ */ new Set();
 						for (const r of skillResults) {
 							const shortPath = shortenPath$2(r.path, cwd);
-							resultLines.push(`  ${import_picocolors.default.dim("→")} ${shortPath}`);
+							if (!shortPathsSet.has(shortPath)) {
+								shortPathsSet.add(shortPath);
+								resultLines.push(`  ${import_picocolors.default.dim("→")} ${shortPath}`);
+							}
 						}
 					} else {
 						if (firstResult.canonicalPath) {
@@ -4253,27 +5150,27 @@ async function runAdd(args, options = {}) {
 				printSkillResults(ungroupedResults);
 			}
 			const title = import_picocolors.default.green(`Installed ${skillCount} skill${skillCount !== 1 ? "s" : ""}`);
-			Me(resultLines.join("\n"), title);
+			note(resultLines.join("\n"), title);
 			if (symlinkFailures.length > 0) {
-				M.warn(import_picocolors.default.yellow(`Symlinks failed for: ${formatList$1(copiedAgents)}`));
-				M.message(import_picocolors.default.dim("  Files were copied instead. On Windows, enable Developer Mode for symlink support."));
+				log.warn(import_picocolors.default.yellow(`Symlinks failed for: ${formatList$1(copiedAgents)}`));
+				log.message(import_picocolors.default.dim("  Files were copied instead. On Windows, enable Developer Mode for symlink support."));
 			}
 		}
 		if (failed.length > 0) {
 			console.log();
-			M.error(import_picocolors.default.red(`Failed to install ${failed.length}`));
-			for (const r of failed) M.message(`  ${import_picocolors.default.red("✗")} ${r.skill} → ${r.agent}: ${import_picocolors.default.dim(r.error)}`);
+			log.error(import_picocolors.default.red(`Failed to install ${failed.length}`));
+			for (const r of failed) log.message(`  ${import_picocolors.default.red("✗")} ${r.skill} → ${r.agent}: ${import_picocolors.default.dim(r.error)}`);
 		}
 		console.log();
-		Se(import_picocolors.default.green("Done!") + import_picocolors.default.dim("  Review skills before use; they run with full agent permissions."));
+		outro(import_picocolors.default.green("Done!") + import_picocolors.default.dim("  Review skills before use; they run with full agent permissions."));
 		await promptForFindSkills(options, targetAgents);
 	} catch (error) {
 		if (error instanceof GitCloneError) {
-			M.error(import_picocolors.default.red("Failed to clone repository"));
-			for (const line of error.message.split("\n")) M.message(import_picocolors.default.dim(line));
-		} else M.error(error instanceof Error ? error.message : "Unknown error occurred");
+			log.error(import_picocolors.default.red("Failed to clone repository"));
+			for (const line of error.message.split("\n")) log.message(import_picocolors.default.dim(line));
+		} else log.error(error instanceof Error ? error.message : "Unknown error occurred");
 		showInstallTip();
-		Se(import_picocolors.default.red("Installation failed"));
+		outro(import_picocolors.default.red("Installation failed"));
 		process.exit(1);
 	} finally {
 		await cleanup(tempDir);
@@ -4294,9 +5191,9 @@ async function promptForFindSkills(options, targetAgents) {
 			return;
 		}
 		console.log();
-		M.message(import_picocolors.default.dim("One-time prompt - you won't be asked again if you dismiss."));
-		const install = await ye({ message: `Install the ${import_picocolors.default.cyan("find-skills")} skill? It helps your agent discover and suggest skills.` });
-		if (pD(install)) {
+		log.message(import_picocolors.default.dim("One-time prompt - you won't be asked again if you dismiss."));
+		const install = await confirm({ message: `Install the ${import_picocolors.default.cyan("find-skills")} skill? It helps your agent discover and suggest skills.` });
+		if (isCancel(install)) {
 			await dismissPrompt("findSkillsPrompt");
 			return;
 		}
@@ -4305,7 +5202,7 @@ async function promptForFindSkills(options, targetAgents) {
 			const findSkillsAgents = targetAgents?.filter((a) => a !== "replit");
 			if (!findSkillsAgents || findSkillsAgents.length === 0) return;
 			console.log();
-			M.step("Installing find-skills skill...");
+			log.step("Installing find-skills skill…");
 			try {
 				await runAdd(["vercel-labs/skills"], {
 					skill: ["find-skills"],
@@ -4314,18 +5211,19 @@ async function promptForFindSkills(options, targetAgents) {
 					agent: findSkillsAgents
 				});
 			} catch {
-				M.warn("Failed to install find-skills. You can try again with:");
-				M.message(import_picocolors.default.dim("  npx skills add vercel-labs/skills@find-skills -g -y --all"));
+				log.warn("Failed to install find-skills. You can try again with:");
+				log.message(import_picocolors.default.dim("  npx skills add vercel-labs/skills@find-skills -g -y --all"));
 			}
 		} else {
 			await dismissPrompt("findSkillsPrompt");
-			M.message(import_picocolors.default.dim("You can install it later with: npx skills add vercel-labs/skills@find-skills"));
+			log.message(import_picocolors.default.dim("You can install it later with: npx skills add vercel-labs/skills@find-skills"));
 		}
 	} catch {}
 }
 function parseAddOptions(args) {
 	const options = {};
 	const source = [];
+	const errors = [];
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
 		if (arg === "-g" || arg === "--global") options.global = true;
@@ -4352,6 +5250,15 @@ function parseAddOptions(args) {
 				nextArg = args[i];
 			}
 			i--;
+		} else if (arg === "--metadata") {
+			const metadata = args[++i];
+			if (metadata === void 0) errors.push("--metadata requires a JSON value");
+			else try {
+				JSON.parse(metadata);
+				options.metadata = metadata;
+			} catch {
+				errors.push("--metadata must be valid JSON");
+			}
 		} else if (arg === "--full-depth") options.fullDepth = true;
 		else if (arg === "--copy") options.copy = true;
 		else if (arg === "--subagent") {
@@ -4368,7 +5275,8 @@ function parseAddOptions(args) {
 	}
 	return {
 		source,
-		options
+		options,
+		errors
 	};
 }
 const RESET$3 = "\x1B[0m";
@@ -4377,6 +5285,7 @@ const DIM$3 = "\x1B[38;5;102m";
 const TEXT$2 = "\x1B[38;5;145m";
 const CYAN$1 = "\x1B[36m";
 const SEARCH_API_BASE = process.env.SKILLS_API_URL || "https://skills.sh";
+const SEARCH_RESULT_LIMIT = "20";
 function formatInstalls(count) {
 	if (!count || count <= 0) return "";
 	if (count >= 1e6) return `${(count / 1e6).toFixed(1).replace(/\.0$/, "")}M installs`;
@@ -4427,7 +5336,7 @@ async function searchSkillsAPI(query, owner) {
 	try {
 		const params = new URLSearchParams({
 			q: query,
-			limit: "10"
+			limit: SEARCH_RESULT_LIMIT
 		});
 		if (owner) params.set("owner", owner);
 		const url = `${SEARCH_API_BASE}/api/search?${params.toString()}`;
@@ -4467,7 +5376,7 @@ async function runSearchPrompt(initialQuery = "", owner) {
 		lines.push(`${TEXT$2}Search skills:${RESET$3} ${query}${cursor}`);
 		lines.push("");
 		if (!query || query.length < 2) lines.push(`${DIM$3}Start typing to search (min 2 chars)${RESET$3}`);
-		else if (results.length === 0 && loading) lines.push(`${DIM$3}Searching...${RESET$3}`);
+		else if (results.length === 0 && loading) lines.push(`${DIM$3}Searching…${RESET$3}`);
 		else if (results.length === 0) lines.push(`${DIM$3}No skills found${RESET$3}`);
 		else {
 			const visible = results.slice(0, 8);
@@ -4479,7 +5388,7 @@ async function runSearchPrompt(initialQuery = "", owner) {
 				const source = skill.source ? ` ${DIM$3}${skill.source}${RESET$3}` : "";
 				const installs = formatInstalls(skill.installs);
 				const installsBadge = installs ? ` ${CYAN$1}${installs}${RESET$3}` : "";
-				const loadingIndicator = loading && i === 0 ? ` ${DIM$3}...${RESET$3}` : "";
+				const loadingIndicator = loading && i === 0 ? ` ${DIM$3}…${RESET$3}` : "";
 				lines.push(`  ${arrow} ${name}${source}${installsBadge}${loadingIndicator}`);
 			}
 		}
@@ -4603,7 +5512,7 @@ ${DIM$3}  2) npx skills add <owner/repo@skill>${RESET$3}`;
 		}
 		console.log(`${DIM$3}Install with${RESET$3} npx skills add <owner/repo@skill>`);
 		console.log();
-		for (const skill of results.slice(0, 6)) {
+		for (const skill of results) {
 			const pkg = skill.source || skill.slug;
 			const installs = formatInstalls(skill.installs);
 			console.log(`${TEXT$2}${pkg}@${skill.name}${RESET$3}${installs ? ` ${CYAN$1}${installs}${RESET$3}` : ""}`);
@@ -4633,7 +5542,7 @@ ${DIM$3}  2) npx skills add <owner/repo@skill>${RESET$3}`;
 	const pkg = selected.source || selected.slug;
 	const skillName = selected.name;
 	console.log();
-	console.log(`${TEXT$2}Installing ${BOLD$3}${skillName}${RESET$3} from ${DIM$3}${pkg}${RESET$3}...`);
+	console.log(`${TEXT$2}Installing ${BOLD$3}${skillName}${RESET$3} from ${DIM$3}${pkg}${RESET$3}…`);
 	console.log();
 	const { source, options: addOptions } = parseAddOptions([
 		pkg,
@@ -4733,27 +5642,27 @@ async function runSync(args, options = {}) {
 		}
 	}
 	console.log();
-	if (!agentResult.isAgent) Ie(import_picocolors.default.bgCyan(import_picocolors.default.black(" skills experimental_sync ")));
-	if (agentResult.isAgent) M.info(import_picocolors.default.bgCyan(import_picocolors.default.black(import_picocolors.default.bold(` ${agentResult.agent.name} `))) + " Agent detected — installing non-interactively");
-	const spinner = Y();
-	spinner.start("Scanning node_modules for skills...");
+	if (!agentResult.isAgent) intro(import_picocolors.default.bgCyan(import_picocolors.default.black(" skills experimental_sync ")));
+	if (agentResult.isAgent) log.info(import_picocolors.default.bgCyan(import_picocolors.default.black(import_picocolors.default.bold(` ${agentResult.agent.name} `))) + " Agent detected — installing non-interactively");
+	const spinner$2 = spinner();
+	spinner$2.start("Scanning node_modules for skills…");
 	const discoveredSkills = await discoverNodeModuleSkills(cwd);
 	if (discoveredSkills.length === 0) {
-		spinner.stop(import_picocolors.default.yellow("No skills found"));
-		Se(import_picocolors.default.dim("No SKILL.md files found in node_modules."));
+		spinner$2.stop(import_picocolors.default.yellow("No skills found"));
+		outro(import_picocolors.default.dim("No SKILL.md files found in node_modules."));
 		return;
 	}
-	spinner.stop(`Found ${import_picocolors.default.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? "s" : ""} in node_modules`);
+	spinner$2.stop(`Found ${import_picocolors.default.green(String(discoveredSkills.length))} skill${discoveredSkills.length > 1 ? "s" : ""} in node_modules`);
 	for (const skill of discoveredSkills) {
-		M.info(`${import_picocolors.default.cyan(skill.name)} ${import_picocolors.default.dim(`from ${skill.packageName}`)}`);
-		if (skill.description) M.message(import_picocolors.default.dim(`  ${skill.description}`));
+		log.info(`${import_picocolors.default.cyan(skill.name)} ${import_picocolors.default.dim(`from ${skill.packageName}`)}`);
+		if (skill.description) log.message(import_picocolors.default.dim(`  ${skill.description}`));
 	}
 	const localLock = await readLocalLock(cwd);
 	const toInstall = [];
 	const upToDate = [];
 	if (options.force) {
 		toInstall.push(...discoveredSkills);
-		M.info(import_picocolors.default.dim("Force mode: reinstalling all skills"));
+		log.info(import_picocolors.default.dim("Force mode: reinstalling all skills"));
 	} else {
 		for (const skill of discoveredSkills) {
 			const existingEntry = localLock.skills[skill.name];
@@ -4765,37 +5674,37 @@ async function runSync(args, options = {}) {
 			}
 			toInstall.push(skill);
 		}
-		if (upToDate.length > 0) M.info(import_picocolors.default.dim(`${upToDate.length} skill${upToDate.length !== 1 ? "s" : ""} already up to date`));
+		if (upToDate.length > 0) log.info(import_picocolors.default.dim(`${upToDate.length} skill${upToDate.length !== 1 ? "s" : ""} already up to date`));
 		if (toInstall.length === 0) {
 			console.log();
-			Se(import_picocolors.default.green("All skills are up to date."));
+			outro(import_picocolors.default.green("All skills are up to date."));
 			return;
 		}
 	}
-	M.info(`${toInstall.length} skill${toInstall.length !== 1 ? "s" : ""} to install/update`);
+	log.info(`${toInstall.length} skill${toInstall.length !== 1 ? "s" : ""} to install/update`);
 	let targetAgents;
 	const validAgents = Object.keys(agents);
 	const universalAgents = getUniversalAgents();
 	const visibleUniversalAgents = getVisibleUniversalAgents();
 	if (options.agent?.includes("*")) {
 		targetAgents = validAgents;
-		M.info(`Installing to all ${targetAgents.length} agents`);
+		log.info(`Installing to all ${targetAgents.length} agents`);
 	} else if (options.agent && options.agent.length > 0) {
 		const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 		if (invalidAgents.length > 0) {
-			M.error(`Invalid agents: ${invalidAgents.join(", ")}`);
-			M.info(`Valid agents: ${validAgents.join(", ")}`);
+			log.error(`Invalid agents: ${invalidAgents.join(", ")}`);
+			log.info(`Valid agents: ${validAgents.join(", ")}`);
 			process.exit(1);
 		}
 		targetAgents = options.agent;
 	} else {
-		spinner.start("Loading agents...");
+		spinner$2.start("Loading agents…");
 		const installedAgents = await detectInstalledAgents();
 		const totalAgents = Object.keys(agents).length;
-		spinner.stop(`${totalAgents} agents`);
+		spinner$2.stop(`${totalAgents} agents`);
 		if (installedAgents.length === 0) if (options.yes) {
 			targetAgents = universalAgents;
-			M.info("Installing to universal agents");
+			log.info("Installing to universal agents");
 		} else {
 			const selected = await searchMultiselect({
 				message: "Which agents do you want to install to?",
@@ -4815,7 +5724,7 @@ async function runSync(args, options = {}) {
 				}
 			});
 			if (isCancelled(selected)) {
-				xe("Sync cancelled");
+				cancel("Sync cancelled");
 				process.exit(0);
 			}
 			targetAgents = selected;
@@ -4842,7 +5751,7 @@ async function runSync(args, options = {}) {
 				}
 			});
 			if (isCancelled(selected)) {
-				xe("Sync cancelled");
+				cancel("Sync cancelled");
 				process.exit(0);
 			}
 			targetAgents = selected;
@@ -4855,15 +5764,15 @@ async function runSync(args, options = {}) {
 		summaryLines.push(`  ${import_picocolors.default.dim(shortCanonical)}`);
 	}
 	console.log();
-	Me(summaryLines.join("\n"), "Sync Summary");
+	note(summaryLines.join("\n"), "Sync Summary");
 	if (!options.yes) {
-		const confirmed = await ye({ message: "Proceed with sync?" });
-		if (pD(confirmed) || !confirmed) {
-			xe("Sync cancelled");
+		const confirmed = await confirm({ message: "Proceed with sync?" });
+		if (isCancel(confirmed) || !confirmed) {
+			cancel("Sync cancelled");
 			process.exit(0);
 		}
 	}
-	spinner.start("Syncing skills...");
+	spinner$2.start("Syncing skills…");
 	const results = [];
 	for (const skill of toInstall) for (const agent of targetAgents) {
 		const result = await installSkillForAgent(skill, agent, {
@@ -4881,7 +5790,7 @@ async function runSync(args, options = {}) {
 			error: result.error
 		});
 	}
-	spinner.stop("Sync complete");
+	spinner$2.stop("Sync complete");
 	const successful = results.filter((r) => r.success);
 	const failed = results.filter((r) => !r.success);
 	const successfulSkillNames = new Set(successful.map((r) => r.skill));
@@ -4913,12 +5822,12 @@ async function runSync(args, options = {}) {
 		}
 		const skillCount = bySkill.size;
 		const title = import_picocolors.default.green(`Synced ${skillCount} skill${skillCount !== 1 ? "s" : ""}`);
-		Me(resultLines.join("\n"), title);
+		note(resultLines.join("\n"), title);
 	}
 	if (failed.length > 0) {
 		console.log();
-		M.error(import_picocolors.default.red(`Failed to install ${failed.length}`));
-		for (const r of failed) M.message(`  ${import_picocolors.default.red("✗")} ${r.skill} → ${r.agent}: ${import_picocolors.default.dim(r.error)}`);
+		log.error(import_picocolors.default.red(`Failed to install ${failed.length}`));
+		for (const r of failed) log.message(`  ${import_picocolors.default.red("✗")} ${r.skill} → ${r.agent}: ${import_picocolors.default.dim(r.error)}`);
 	}
 	track({
 		event: "experimental_sync",
@@ -4927,7 +5836,7 @@ async function runSync(args, options = {}) {
 		agents: targetAgents.join(",")
 	});
 	console.log();
-	Se(import_picocolors.default.green("Done!") + import_picocolors.default.dim("  Review skills before use; they run with full agent permissions."));
+	outro(import_picocolors.default.green("Done!") + import_picocolors.default.dim("  Review skills before use; they run with full agent permissions."));
 }
 function parseSyncOptions(args) {
 	const options = {};
@@ -4949,12 +5858,75 @@ function parseSyncOptions(args) {
 	}
 	return { options };
 }
+function formatSourceInput(sourceUrl, ref) {
+	if (!ref) return sourceUrl;
+	return `${sourceUrl}#${ref}`;
+}
+function deriveSkillFolder(skillPath) {
+	let folder = skillPath;
+	if (folder.endsWith("/SKILL.md")) folder = folder.slice(0, -9);
+	else if (folder.endsWith("SKILL.md")) folder = folder.slice(0, -8);
+	if (folder.endsWith("/")) folder = folder.slice(0, -1);
+	return folder;
+}
+function supportsAppendedSubpath(source) {
+	if (source.startsWith("git@") || source.startsWith("ssh://")) return false;
+	if (source.endsWith(".git")) return false;
+	if (source.startsWith("http://") || source.startsWith("https://")) try {
+		const host = new URL(source).hostname;
+		return host === "github.com" || host === "gitlab.com";
+	} catch {
+		return false;
+	}
+	return true;
+}
+function isBareShorthand(source) {
+	return !source.includes(":") && !source.startsWith(".") && !source.startsWith("/");
+}
+function getLocalSource(entry) {
+	if (entry.sourceUrl) return entry.sourceUrl;
+	if ((entry.sourceType === "git" || entry.sourceType === "gitlab") && isBareShorthand(entry.source)) return null;
+	return entry.source;
+}
+function buildLocalCloneSource(entry) {
+	const source = getLocalSource(entry);
+	if (!source) return null;
+	if (entry.sourceType === "github" && isBareShorthand(source)) return `https://github.com/${source.replace(/\.git$/, "")}.git`;
+	return source;
+}
+function shouldUseFullDepthForUpdate(entry) {
+	if (!entry.skillPath) return false;
+	const source = entry.sourceType && entry.sourceType !== "github" ? getLocalSource(entry) : entry.source;
+	return source !== null && !supportsAppendedSubpath(source);
+}
+function appendFolderAndRef(source, skillPath, ref) {
+	if (!supportsAppendedSubpath(source)) return formatSourceInput(source, ref);
+	const folder = deriveSkillFolder(skillPath);
+	const withFolder = folder ? `${source}/${folder}` : source;
+	return ref ? `${withFolder}#${ref}` : withFolder;
+}
+function buildUpdateInstallSource(entry) {
+	if (!entry.skillPath) {
+		const source = entry.sourceType && entry.sourceType !== "github" ? getLocalSource(entry) : entry.sourceUrl || entry.source;
+		if (!source) return null;
+		return formatSourceInput(source, entry.ref);
+	}
+	const source = entry.sourceType && entry.sourceType !== "github" ? getLocalSource(entry) : entry.source;
+	if (!source) return null;
+	return appendFolderAndRef(source, entry.skillPath, entry.ref);
+}
+function buildLocalUpdateSource(entry) {
+	const source = getLocalSource(entry);
+	if (!source) return null;
+	if (!entry.skillPath) return formatSourceInput(source, entry.ref);
+	return appendFolderAndRef(source, entry.skillPath, entry.ref);
+}
 async function runInstallFromLock(args) {
 	const lock = await readLocalLock(process.cwd());
 	const skillEntries = Object.entries(lock.skills);
 	if (skillEntries.length === 0) {
-		M.warn("No project skills found in skills-lock.json");
-		M.info(`Add project-level skills with ${import_picocolors.default.cyan("npx skills add <package>")} (without ${import_picocolors.default.cyan("-g")})`);
+		log.warn("No project skills found in skills-lock.json");
+		log.info(`Add project-level skills with ${import_picocolors.default.cyan("npx skills add <package>")} (without ${import_picocolors.default.cyan("-g")})`);
 		return;
 	}
 	const universalAgentNames = getUniversalAgents();
@@ -4965,7 +5937,11 @@ async function runInstallFromLock(args) {
 			nodeModuleSkills.push(skillName);
 			continue;
 		}
-		const installSource = entry.ref ? `${entry.source}#${entry.ref}` : entry.source;
+		const installSource = buildLocalUpdateSource(entry);
+		if (!installSource) {
+			log.error(`Cannot restore ${import_picocolors.default.cyan(skillName)}: skills-lock.json is missing sourceUrl for this generic Git source`);
+			continue;
+		}
 		const existing = bySource.get(installSource);
 		if (existing) existing.skills.push(skillName);
 		else bySource.set(installSource, {
@@ -4974,7 +5950,7 @@ async function runInstallFromLock(args) {
 		});
 	}
 	const remoteCount = skillEntries.length - nodeModuleSkills.length;
-	if (remoteCount > 0) M.info(`Restoring ${import_picocolors.default.cyan(String(remoteCount))} skill${remoteCount !== 1 ? "s" : ""} from skills-lock.json into ${import_picocolors.default.dim(".agents/skills/")}`);
+	if (remoteCount > 0) log.info(`Restoring ${import_picocolors.default.cyan(String(remoteCount))} skill${remoteCount !== 1 ? "s" : ""} from skills-lock.json into ${import_picocolors.default.dim(".agents/skills/")}`);
 	for (const [source, { skills }] of bySource) try {
 		await runAdd([source], {
 			skill: skills,
@@ -4982,10 +5958,10 @@ async function runInstallFromLock(args) {
 			yes: true
 		});
 	} catch (error) {
-		M.error(`Failed to install from ${import_picocolors.default.cyan(source)}: ${error instanceof Error ? error.message : "Unknown error"}`);
+		log.error(`Failed to install from ${import_picocolors.default.cyan(source)}: ${error instanceof Error ? error.message : "Unknown error"}`);
 	}
 	if (nodeModuleSkills.length > 0) {
-		M.info(`${import_picocolors.default.cyan(String(nodeModuleSkills.length))} skill${nodeModuleSkills.length !== 1 ? "s" : ""} from node_modules`);
+		log.info(`${import_picocolors.default.cyan(String(nodeModuleSkills.length))} skill${nodeModuleSkills.length !== 1 ? "s" : ""} from node_modules`);
 		try {
 			const { options: syncOptions } = parseSyncOptions(args);
 			await runSync(args, {
@@ -4994,7 +5970,7 @@ async function runInstallFromLock(args) {
 				agent: universalAgentNames
 			});
 		} catch (error) {
-			M.error(`Failed to sync node_modules skills: ${error instanceof Error ? error.message : "Unknown error"}`);
+			log.error(`Failed to sync node_modules skills: ${error instanceof Error ? error.message : "Unknown error"}`);
 		}
 	}
 }
@@ -5046,18 +6022,26 @@ async function runList(args) {
 		global: scope,
 		agentFilter
 	});
+	const cwd = process.cwd();
+	const lockedSkills = scope ? await getAllLockedSkills() : (await readLocalLock(cwd)).skills;
+	const lockEntriesBySanitizedName = new Map(Object.entries(lockedSkills).map(([name, entry]) => [sanitizeName(name), entry]));
+	const getLockEntry = (skillName) => lockedSkills[skillName] ?? lockEntriesBySanitizedName.get(sanitizeName(skillName));
 	if (options.json) {
-		const jsonOutput = installedSkills.map((skill) => ({
-			name: skill.name,
-			path: skill.canonicalPath,
-			scope: skill.scope,
-			agents: skill.agents.map((a) => agents[a].displayName)
-		}));
+		const jsonOutput = installedSkills.map((skill) => {
+			const lockEntry = getLockEntry(skill.name);
+			return {
+				name: skill.name,
+				path: skill.canonicalPath,
+				scope: skill.scope,
+				agents: skill.agents.map((a) => agents[a].displayName),
+				source: lockEntry?.source ?? null,
+				sourceUrl: lockEntry?.sourceUrl ?? null,
+				sourceType: lockEntry?.sourceType ?? null
+			};
+		});
 		console.log(JSON.stringify(jsonOutput, null, 2));
 		return;
 	}
-	const lockedSkills = await getAllLockedSkills();
-	const cwd = process.cwd();
 	const scopeLabel = scope ? "Global" : "Project";
 	if (installedSkills.length === 0) {
 		if (options.json) {
@@ -5076,14 +6060,17 @@ async function runList(args) {
 		const agentInfo = skill.agents.length > 0 ? formatList(agentNames) : `${YELLOW}not linked${RESET$2}`;
 		const paddedName = sanitizeMetadata(skill.name).padEnd(maxNameLength);
 		const paddedPath = shortPath.padEnd(maxPathLength);
-		console.log(`${prefix}${CYAN}${paddedName}${RESET$2} ${DIM$2}${paddedPath}${RESET$2} ${DIM$2}Agents:${RESET$2} ${agentInfo}`);
+		const source = getLockEntry(skill.name)?.source ?? null;
+		const sourceLabel = source ? sanitizeMetadata(source) : "local";
+		console.log(`${prefix}${CYAN}${paddedName}${RESET$2} ${DIM$2}${paddedPath}${RESET$2}`);
+		console.log(`${prefix}  ${DIM$2}Agents:${RESET$2} ${agentInfo}  ${DIM$2}Source:${RESET$2} ${sourceLabel}`);
 	}
 	console.log(`${BOLD$2}${scopeLabel} Skills${RESET$2}`);
 	console.log();
 	const groupedSkills = {};
 	const ungroupedSkills = [];
 	for (const skill of installedSkills) {
-		const lockEntry = lockedSkills[skill.name];
+		const lockEntry = getLockEntry(skill.name);
 		if (lockEntry?.pluginName) {
 			const group = lockEntry.pluginName;
 			if (!groupedSkills[group]) groupedSkills[group] = [];
@@ -5135,23 +6122,45 @@ async function runList(args) {
 		console.log();
 	}
 }
+function resolveSkillsToRemove(requested, folderNames, lockKeys = []) {
+	const identityBySanitized = /* @__PURE__ */ new Map();
+	for (const folder of folderNames) identityBySanitized.set(sanitizeName(folder), folder);
+	for (const key of lockKeys) identityBySanitized.set(sanitizeName(key), key);
+	const matched = /* @__PURE__ */ new Set();
+	for (const name of requested) {
+		const hit = identityBySanitized.get(sanitizeName(name));
+		if (hit) matched.add(hit);
+	}
+	return Array.from(matched);
+}
 async function removeCommand(skillNames, options) {
 	const agentResult = await detectAgent();
 	if (agentResult.isAgent) {
 		options.yes = true;
-		M.info(import_picocolors.default.bgCyan(import_picocolors.default.black(import_picocolors.default.bold(` ${agentResult.agent.name} `))) + " Agent detected — removing non-interactively");
+		log.info(import_picocolors.default.bgCyan(import_picocolors.default.black(import_picocolors.default.bold(` ${agentResult.agent.name} `))) + " Agent detected — removing non-interactively");
+	}
+	if (skillNames.includes("*")) {
+		options.all = true;
+		skillNames = skillNames.filter((name) => name !== "*");
+	}
+	const namedSkills = skillNames.filter((name) => name !== "*");
+	if (options.all && namedSkills.length > 0) {
+		log.error("Cannot combine --all with specific skill names.");
+		log.info("Use `skills remove --all` to remove every skill, or omit --all to remove only the named skills.");
+		log.info(`Example: skills remove ${namedSkills[0]} -y`);
+		process.exit(1);
 	}
 	const isGlobal = options.global ?? false;
 	const cwd = process.cwd();
-	const spinner = Y();
-	spinner.start("Scanning for installed skills...");
+	const spinner$1 = spinner();
+	spinner$1.start("Scanning for installed skills…");
 	const skillNamesSet = /* @__PURE__ */ new Set();
 	const scanDir = async (dir) => {
 		try {
 			const entries = await readdir(dir, { withFileTypes: true });
 			for (const entry of entries) if (entry.isDirectory()) skillNamesSet.add(entry.name);
 		} catch (err) {
-			if (err instanceof Error && err.code !== "ENOENT") M.warn(`Could not scan directory ${dir}: ${err.message}`);
+			if (err instanceof Error && err.code !== "ENOENT") log.warn(`Could not scan directory ${dir}: ${err.message}`);
 		}
 	};
 	if (isGlobal) {
@@ -5163,26 +6172,29 @@ async function removeCommand(skillNames, options) {
 		for (const subagent of getEveSubagents(cwd)) await scanDir(getEveSubagentSkillsDir(subagent, cwd));
 	}
 	const installedSkills = Array.from(skillNamesSet).sort();
-	spinner.stop(`Found ${installedSkills.length} unique installed skill(s)`);
-	if (installedSkills.length === 0) {
-		Se(import_picocolors.default.yellow("No skills found to remove."));
+	spinner$1.stop(`Found ${installedSkills.length} unique installed skill(s)`);
+	const lockSkillsKeys = isGlobal ? Object.keys((await readSkillLock()).skills) : Object.keys((await readLocalLock(cwd)).skills);
+	const requestedSkills = options.all ? [...installedSkills, ...lockSkillsKeys] : skillNames;
+	const resolvedRequestedSkills = options.all || skillNames.length > 0 ? resolveSkillsToRemove(requestedSkills, installedSkills, lockSkillsKeys) : [];
+	if (installedSkills.length === 0 && resolvedRequestedSkills.length === 0) {
+		outro(import_picocolors.default.yellow("No skills found to remove."));
 		return;
 	}
 	if (options.agent && options.agent.length > 0) {
 		const validAgents = Object.keys(agents);
 		const invalidAgents = options.agent.filter((a) => !validAgents.includes(a));
 		if (invalidAgents.length > 0) {
-			M.error(`Invalid agents: ${invalidAgents.join(", ")}`);
-			M.info(`Valid agents: ${validAgents.join(", ")}`);
+			log.error(`Invalid agents: ${invalidAgents.join(", ")}`);
+			log.info(`Valid agents: ${validAgents.join(", ")}`);
 			process.exit(1);
 		}
 	}
 	let selectedSkills = [];
-	if (options.all) selectedSkills = installedSkills;
+	if (options.all) selectedSkills = resolvedRequestedSkills;
 	else if (skillNames.length > 0) {
-		selectedSkills = installedSkills.filter((s) => skillNames.some((name) => name.toLowerCase() === s.toLowerCase()));
+		selectedSkills = resolvedRequestedSkills;
 		if (selectedSkills.length === 0) {
-			M.error(`No matching skills found for: ${skillNames.join(", ")}`);
+			log.error(`No matching skills found for: ${skillNames.join(", ")}`);
 			return;
 		}
 	} else {
@@ -5190,35 +6202,35 @@ async function removeCommand(skillNames, options) {
 			value: s,
 			label: s
 		}));
-		const selected = await fe({
+		const selected = await multiselect({
 			message: `Select skills to remove ${import_picocolors.default.dim("(space to toggle)")}`,
 			options: choices,
 			required: true
 		});
-		if (pD(selected)) {
-			xe("Removal cancelled");
+		if (isCancel(selected)) {
+			cancel("Removal cancelled");
 			process.exit(0);
 		}
-		selectedSkills = selected;
+		selectedSkills = resolveSkillsToRemove(selected, installedSkills, lockSkillsKeys);
 	}
 	let targetAgents;
 	if (options.agent && options.agent.length > 0) targetAgents = options.agent;
 	else {
 		targetAgents = Object.keys(agents);
-		spinner.stop(`Targeting ${targetAgents.length} potential agent(s)`);
+		spinner$1.stop(`Targeting ${targetAgents.length} potential agent(s)`);
 	}
 	if (!options.yes) {
 		console.log();
-		M.info("Skills to remove:");
-		for (const skill of selectedSkills) M.message(`  ${import_picocolors.default.red("•")} ${skill}`);
+		log.info("Skills to remove:");
+		for (const skill of selectedSkills) log.message(`  ${import_picocolors.default.red("•")} ${skill}`);
 		console.log();
-		const confirmed = await ye({ message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?` });
-		if (pD(confirmed) || !confirmed) {
-			xe("Removal cancelled");
+		const confirmed = await confirm({ message: `Are you sure you want to uninstall ${selectedSkills.length} skill(s)?` });
+		if (isCancel(confirmed) || !confirmed) {
+			cancel("Removal cancelled");
 			process.exit(0);
 		}
 	}
-	spinner.start("Removing skills...");
+	spinner$1.start("Removing skills…");
 	const results = [];
 	for (const skillName of selectedSkills) try {
 		const canonicalPath = getCanonicalPath(skillName, {
@@ -5231,7 +6243,7 @@ async function removeCommand(skillNames, options) {
 				global: isGlobal,
 				cwd
 			});
-			const pathsToCleanup = new Set([skillPath]);
+			const pathsToCleanup = /* @__PURE__ */ new Set([skillPath]);
 			const sanitizedName = sanitizeName(skillName);
 			if (isGlobal && agent.globalSkillsDir) pathsToCleanup.add(join(agent.globalSkillsDir, sanitizedName));
 			else {
@@ -5246,7 +6258,7 @@ async function removeCommand(skillNames, options) {
 						force: true
 					});
 				} catch (err) {
-					M.warn(`Could not remove skill from ${agent.displayName}: ${err instanceof Error ? err.message : String(err)}`);
+					log.warn(`Could not remove skill from ${agent.displayName}: ${err instanceof Error ? err.message : String(err)}`);
 				}
 			}
 		}
@@ -5263,10 +6275,19 @@ async function removeCommand(skillNames, options) {
 			recursive: true,
 			force: true
 		});
-		const lockEntry = isGlobal ? await getSkillFromLock(skillName) : null;
-		const effectiveSource = lockEntry?.source || "local";
-		const effectiveSourceType = lockEntry?.sourceType || "local";
-		if (isGlobal) await removeSkillFromLock(skillName);
+		let effectiveSource = "local";
+		let effectiveSourceType = "local";
+		if (isGlobal) {
+			const lockEntry = await getSkillFromLock(skillName);
+			effectiveSource = lockEntry?.source || "local";
+			effectiveSourceType = lockEntry?.sourceType || "local";
+			if (!isStillUsed) await removeSkillFromLock(skillName);
+		} else {
+			const lockEntry = (await readLocalLock(cwd)).skills[skillName];
+			effectiveSource = lockEntry?.source || "local";
+			effectiveSourceType = lockEntry?.sourceType || "local";
+			if (!isStillUsed) await removeSkillFromLocalLock(skillName, cwd);
+		}
 		results.push({
 			skill: skillName,
 			success: true,
@@ -5280,7 +6301,7 @@ async function removeCommand(skillNames, options) {
 			error: err instanceof Error ? err.message : String(err)
 		});
 	}
-	spinner.stop("Removal process complete");
+	spinner$1.stop("Removal process complete");
 	const successful = results.filter((r) => r.success);
 	const failed = results.filter((r) => !r.success);
 	if (successful.length > 0) {
@@ -5301,13 +6322,13 @@ async function removeCommand(skillNames, options) {
 			sourceType: data.sourceType
 		});
 	}
-	if (successful.length > 0) M.success(import_picocolors.default.green(`Successfully removed ${successful.length} skill(s)`));
+	if (successful.length > 0) log.success(import_picocolors.default.green(`Successfully removed ${successful.length} skill(s)`));
 	if (failed.length > 0) {
-		M.error(import_picocolors.default.red(`Failed to remove ${failed.length} skill(s)`));
-		for (const r of failed) M.message(`  ${import_picocolors.default.red("✗")} ${r.skill}: ${r.error}`);
+		log.error(import_picocolors.default.red(`Failed to remove ${failed.length} skill(s)`));
+		for (const r of failed) log.message(`  ${import_picocolors.default.red("✗")} ${r.skill}: ${r.error}`);
 	}
 	console.log();
-	Se(import_picocolors.default.green("Done!"));
+	outro(import_picocolors.default.green("Done!"));
 }
 function parseRemoveOptions(args) {
 	const options = {};
@@ -5316,8 +6337,19 @@ function parseRemoveOptions(args) {
 		const arg = args[i];
 		if (arg === "-g" || arg === "--global") options.global = true;
 		else if (arg === "-y" || arg === "--yes") options.yes = true;
-		else if (arg === "--all") options.all = true;
-		else if (arg === "-a" || arg === "--agent") {
+		else if (arg === "--all") {
+			options.all = true;
+			options.yes = true;
+		} else if (arg === "-s" || arg === "--skill") {
+			i++;
+			let nextArg = args[i];
+			while (i < args.length && nextArg && !nextArg.startsWith("-")) {
+				skills.push(nextArg);
+				i++;
+				nextArg = args[i];
+			}
+			i--;
+		} else if (arg === "-a" || arg === "--agent") {
 			options.agent = options.agent || [];
 			i++;
 			let nextArg = args[i];
@@ -5334,43 +6366,18 @@ function parseRemoveOptions(args) {
 		options
 	};
 }
-function formatSourceInput(sourceUrl, ref) {
-	if (!ref) return sourceUrl;
-	return `${sourceUrl}#${ref}`;
-}
-function deriveSkillFolder(skillPath) {
-	let folder = skillPath;
-	if (folder.endsWith("/SKILL.md")) folder = folder.slice(0, -9);
-	else if (folder.endsWith("SKILL.md")) folder = folder.slice(0, -8);
-	if (folder.endsWith("/")) folder = folder.slice(0, -1);
-	return folder;
-}
-function supportsAppendedSubpath(source) {
-	if (source.startsWith("git@")) return false;
-	if (source.endsWith(".git")) return false;
-	if (source.startsWith("http://") || source.startsWith("https://")) try {
-		const host = new URL(source).hostname;
-		return host === "github.com" || host === "gitlab.com";
-	} catch {
-		return false;
-	}
-	return true;
-}
-function appendFolderAndRef(source, skillPath, ref) {
-	if (!supportsAppendedSubpath(source)) return formatSourceInput(source, ref);
-	const folder = deriveSkillFolder(skillPath);
-	const withFolder = folder ? `${source}/${folder}` : source;
-	return ref ? `${withFolder}#${ref}` : withFolder;
-}
-function buildUpdateInstallSource(entry) {
-	if (!entry.skillPath) return formatSourceInput(entry.sourceUrl, entry.ref);
-	return appendFolderAndRef(entry.source, entry.skillPath, entry.ref);
-}
 const __dirname$1 = dirname(fileURLToPath(import.meta.url));
 const RESET$1 = "\x1B[0m";
 const BOLD$1 = "\x1B[1m";
 const DIM$1 = "\x1B[38;5;102m";
 const TEXT$1 = "\x1B[38;5;145m";
+function getUpdateChildEnv(sourceType) {
+	if (sourceType !== "github") return;
+	return {
+		...process.env,
+		GH_HOST: "github.com"
+	};
+}
 function parseUpdateOptions(args) {
 	const options = {};
 	const positional = [];
@@ -5403,7 +6410,7 @@ async function resolveUpdateScope(options) {
 	if (options.global) return "global";
 	if (options.project) return "project";
 	if (options.yes || !process.stdin.isTTY) return hasProjectSkills() ? "project" : "global";
-	const scope = await ve({
+	const scope = await select({
 		message: "Update scope",
 		options: [
 			{
@@ -5423,8 +6430,8 @@ async function resolveUpdateScope(options) {
 			}
 		]
 	});
-	if (pD(scope)) {
-		xe("Cancelled");
+	if (isCancel(scope)) {
+		cancel("Cancelled");
 		process.exit(0);
 	}
 	return scope;
@@ -5481,11 +6488,29 @@ async function getProjectSkillsForUpdate(skillFilter) {
 		if (entry.sourceType === "node_modules" || entry.sourceType === "local") continue;
 		skills.push({
 			name,
-			source: entry.source,
+			source: entry.sourceUrl || entry.source,
 			entry
 		});
 	}
 	return skills;
+}
+async function promptDeletions(source, deletedSkills, isGlobal, options) {
+	if (deletedSkills.length === 0) return;
+	console.log();
+	console.log(`${DIM$1}Warning:${RESET$1} The following skills from ${DIM$1}${source}${RESET$1} appear to have been deleted upstream:`);
+	for (const s of deletedSkills) console.log(`  ${DIM$1}•${RESET$1} ${s}`);
+	if (options.yes || !process.stdin.isTTY) {
+		console.log(`${DIM$1}Skipping deletion in non-interactive mode.${RESET$1}`);
+		return;
+	}
+	const confirmed = await confirm({ message: `Would you like to remove the local copies of these deleted skills?` });
+	if (confirmed && !isCancel(confirmed)) for (const s of deletedSkills) {
+		console.log(`${DIM$1}Removing${RESET$1} ${s}…`);
+		await removeCommand([s], {
+			yes: true,
+			global: isGlobal
+		});
+	}
 }
 async function checkAndPromptForDeletions(source, allLockedForSource, lockSkills, isGlobal, options, discoveredPaths) {
 	const deletedSkills = allLockedForSource.filter((name) => {
@@ -5493,23 +6518,119 @@ async function checkAndPromptForDeletions(source, allLockedForSource, lockSkills
 		if (!entry?.skillPath) return false;
 		return !discoveredPaths.includes(entry.skillPath);
 	});
-	if (deletedSkills.length > 0) {
-		console.log();
-		console.log(`${DIM$1}Warning:${RESET$1} The following skills from ${DIM$1}${source}${RESET$1} appear to have been deleted upstream:`);
-		for (const s of deletedSkills) console.log(`  ${DIM$1}•${RESET$1} ${s}`);
-		if (options.yes || !process.stdin.isTTY) console.log(`${DIM$1}Skipping deletion in non-interactive mode.${RESET$1}`);
-		else {
-			const confirmed = await ye({ message: `Would you like to remove the local copies of these deleted skills?` });
-			if (confirmed && !pD(confirmed)) for (const s of deletedSkills) {
-				console.log(`${DIM$1}Removing${RESET$1} ${s}...`);
-				await removeCommand([s], {
-					yes: true,
-					global: isGlobal
-				});
+	await promptDeletions(source, deletedSkills, isGlobal, options);
+	return deletedSkills;
+}
+async function checkWellKnownForUpdates(baseUrl, items) {
+	let indexResult;
+	try {
+		indexResult = await wellKnownProvider.fetchIndex(baseUrl, { updateCheck: true });
+	} catch {
+		return { status: "error" };
+	}
+	if (!indexResult) return { status: "error" };
+	const byName = new Map(indexResult.entries.map((entry) => [entry.name, entry]));
+	const removedSkills = items.filter((item) => !byName.has(item.name)).map((item) => item.name);
+	const localNames = new Set(items.map((item) => item.name));
+	const newSkills = indexResult.entries.map((entry) => entry.name).filter((name) => !localNames.has(name));
+	const changedSkills = [];
+	const needsContentCheck = [];
+	for (const item of items) {
+		const entry = byName.get(item.name);
+		if (!entry) continue;
+		if (entry.version === "0.2.0") {
+			if (!item.digest || entry.digest !== item.digest) changedSkills.push(item.name);
+		} else needsContentCheck.push(item);
+	}
+	if (needsContentCheck.length > 0) {
+		const tracked = new Set(needsContentCheck.map((item) => item.name));
+		const skills = (await Promise.all(indexResult.entries.filter((entry) => tracked.has(entry.name)).map((entry) => wellKnownProvider.fetchSkillByEntry(entry).catch(() => null)))).filter((skill) => skill !== null);
+		if (skills.length === 0) return { status: "error" };
+		const digests = new Map(skills.map((skill) => [skill.installName, computeWellKnownSkillDigest(skill)]));
+		for (const item of needsContentCheck) {
+			const digest = digests.get(item.name);
+			if (!digest || !item.digest || digest !== item.digest) changedSkills.push(item.name);
+		}
+	}
+	if (changedSkills.length === 0 && removedSkills.length === 0) return {
+		status: "current",
+		newSkills
+	};
+	return {
+		status: "changed",
+		changedSkills,
+		removedSkills,
+		newSkills
+	};
+}
+function printNewSkills(baseUrl, newSkills, isGlobal) {
+	if (newSkills.length === 0) return;
+	const names = newSkills.map(sanitizeMetadata);
+	console.log(`  ${DIM$1}${newSkills.length} new skill(s) available from this source:${RESET$1} ${names.join(", ")}`);
+	console.log(`    ${DIM$1}To install: ${TEXT$1}npx skills add ${baseUrl} --skill ${names.join(" ")}${isGlobal ? " -g" : ""}${RESET$1}`);
+}
+async function processWellKnownUpdates(groups, isGlobal, options) {
+	let successCount = 0;
+	let failCount = 0;
+	let changed = false;
+	for (const [baseUrl, items] of groups) {
+		process.stdout.write(`\r${DIM$1}Checking skills from source: ${baseUrl}${RESET$1}\x1b[K\n`);
+		const result = await checkWellKnownForUpdates(baseUrl, items);
+		if (result.status === "error") {
+			console.log(`  ${DIM$1}✗ Failed to check skills from ${baseUrl}${RESET$1}`);
+			continue;
+		}
+		if (result.status === "current") {
+			printNewSkills(baseUrl, result.newSkills, isGlobal);
+			continue;
+		}
+		changed = true;
+		await promptDeletions(baseUrl, result.removedSkills, isGlobal, options);
+		printNewSkills(baseUrl, result.newSkills, isGlobal);
+		if (result.changedSkills.length === 0) continue;
+		const cliEntry = join(__dirname$1, "..", "bin", "cli.mjs");
+		if (!existsSync(cliEntry)) {
+			failCount += result.changedSkills.length;
+			console.log(`  ${DIM$1}✗ CLI entrypoint not found at ${cliEntry}${RESET$1}`);
+			continue;
+		}
+		const itemByName = new Map(items.map((item) => [item.name, item]));
+		for (const name of result.changedSkills) {
+			const safeName = sanitizeMetadata(name);
+			console.log(`${TEXT$1}Updating ${safeName}…${RESET$1}`);
+			const subagents = itemByName.get(name)?.subagents;
+			const subagentArgs = !isGlobal && subagents?.length ? ["--subagent", ...subagents.map((s) => s === "" ? "root" : s)] : [];
+			if (spawnSync(process.execPath, [
+				cliEntry,
+				"add",
+				baseUrl,
+				"--skill",
+				name,
+				...subagentArgs,
+				...isGlobal ? ["-g"] : [],
+				"-y"
+			], {
+				stdio: [
+					"inherit",
+					"pipe",
+					"pipe"
+				],
+				encoding: "utf-8",
+				shell: false
+			}).status === 0) {
+				successCount++;
+				console.log(`  ${TEXT$1}✓${RESET$1} Updated ${safeName}`);
+			} else {
+				failCount++;
+				console.log(`  ${DIM$1}✗ Failed to update ${safeName}${RESET$1}`);
 			}
 		}
 	}
-	return deletedSkills;
+	return {
+		successCount,
+		failCount,
+		changed
+	};
 }
 async function updateGlobalSkills(options = {}) {
 	const lock = await readSkillLock();
@@ -5530,10 +6651,20 @@ async function updateGlobalSkills(options = {}) {
 	const updates = [];
 	const skipped = [];
 	const checkable = [];
+	const wellKnownGroups = /* @__PURE__ */ new Map();
 	for (const skillName of skillNames) {
 		if (!matchesSkillFilter(skillName, options.skills)) continue;
 		const entry = lock.skills[skillName];
 		if (!entry) continue;
+		if (entry.sourceType === "well-known" && entry.sourceBaseUrl && entry.wellKnownDigest) {
+			const group = wellKnownGroups.get(entry.sourceBaseUrl) || [];
+			group.push({
+				name: skillName,
+				digest: entry.wellKnownDigest
+			});
+			wellKnownGroups.set(entry.sourceBaseUrl, group);
+			continue;
+		}
 		if (!entry.skillFolderHash || !entry.skillPath) {
 			skipped.push({
 				name: skillName,
@@ -5549,50 +6680,55 @@ async function updateGlobalSkills(options = {}) {
 			entry
 		});
 	}
+	const wellKnownCount = Array.from(wellKnownGroups.values()).reduce((sum, items) => sum + items.length, 0);
+	const { successCount: wkSuccessCount, failCount: wkFailCount, changed: wkChanged } = await processWellKnownUpdates(wellKnownGroups, true, options);
+	successCount += wkSuccessCount;
+	failCount += wkFailCount;
 	const bySource = /* @__PURE__ */ new Map();
 	for (const item of checkable) {
-		const source = item.entry.source;
-		const existing = bySource.get(source) || [];
+		const key = `${item.entry.source}\n${item.entry.ref ?? ""}`;
+		const existing = bySource.get(key) || [];
 		existing.push(item);
-		bySource.set(source, existing);
+		bySource.set(key, existing);
 	}
-	for (const [source, itemsForSource] of bySource) {
+	for (const [, itemsForSource] of bySource) {
 		const firstEntry = itemsForSource[0].entry;
+		const source = firstEntry.source;
 		const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
 		let tempDir = null;
 		process.stdout.write(`\r${DIM$1}Checking skills from source: ${source}${RESET$1}\x1b[K\n`);
 		try {
-			if (firstEntry.sourceType === "github") {
+			const isGitHubSource = firstEntry.sourceType === "github";
+			if (isGitHubSource) {
 				const tree = await fetchRepoTree(source, firstEntry.ref, getGitHubToken);
-				if (!tree) {
-					console.log(`  ${DIM$1}✗ Failed to fetch tree for ${source}${RESET$1}`);
+				if (tree) {
+					const discoveredPaths = tree.tree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
+					const deletedSkills = await checkAndPromptForDeletions(source, Object.entries(lock.skills).filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref).map(([name, _]) => name), lock.skills, true, options, discoveredPaths);
+					const deletedSkillSet = new Set(deletedSkills);
+					for (const { name: skillName, entry } of itemsForSource) {
+						if (deletedSkillSet.has(skillName)) continue;
+						const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath);
+						if (latestHash && latestHash !== entry.skillFolderHash) updates.push({
+							name: skillName,
+							source,
+							entry
+						});
+					}
 					continue;
 				}
-				const discoveredPaths = findSkillMdPaths(tree);
-				const deletedSkills = await checkAndPromptForDeletions(source, Object.entries(lock.skills).filter(([_, entry]) => entry.source === source).map(([name, _]) => name), lock.skills, true, options, discoveredPaths);
-				const deletedSkillSet = new Set(deletedSkills);
-				for (const { name: skillName, entry } of itemsForSource) {
-					if (deletedSkillSet.has(skillName)) continue;
-					const latestHash = getSkillFolderHashFromTree(tree, entry.skillPath);
-					if (latestHash && latestHash !== entry.skillFolderHash) updates.push({
-						name: skillName,
-						source,
-						entry
-					});
-				}
-				continue;
+				console.log(`  ${DIM$1}GitHub API unavailable; checking via Git clone${RESET$1}`);
 			}
 			tempDir = await cloneRepo(sourceUrl, firstEntry.ref);
-			const discoveredPaths = (await discoverSkills(tempDir)).map((skill) => {
+			const discoveredPaths = (await discoverSkills(tempDir, void 0, { fullDepth: true })).map((skill) => {
 				return join(relative(tempDir, skill.path), "SKILL.md").split(sep).join("/");
 			});
-			const deletedSkills = await checkAndPromptForDeletions(source, Object.entries(lock.skills).filter(([_, entry]) => entry.source === source).map(([name, _]) => name), lock.skills, true, options, discoveredPaths);
+			const deletedSkills = await checkAndPromptForDeletions(source, Object.entries(lock.skills).filter(([_, entry]) => entry.source === source && entry.ref === firstEntry.ref).map(([name, _]) => name), lock.skills, true, options, discoveredPaths);
 			const deletedSkillSet = new Set(deletedSkills);
 			for (const { name: skillName, entry } of itemsForSource) {
 				if (deletedSkillSet.has(skillName)) continue;
 				const skillPath = entry.skillPath;
 				if (!discoveredPaths.includes(skillPath)) continue;
-				const latestHash = await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
+				const latestHash = isGitHubSource && /^[0-9a-f]{40}$/i.test(entry.skillFolderHash) ? await getGitTreeHash(tempDir, skillPath) : await computeSkillFolderHash(join(tempDir, dirname(skillPath)));
 				if (latestHash && latestHash !== entry.skillFolderHash) updates.push({
 					name: skillName,
 					source,
@@ -5606,13 +6742,21 @@ async function updateGlobalSkills(options = {}) {
 		}
 	}
 	if (checkable.length > 0) process.stdout.write("\r\x1B[K");
-	const checkedCount = checkable.length + skipped.length;
-	if (checkable.length === 0 && skipped.length === 0) {
+	const checkedCount = checkable.length + skipped.length + wellKnownCount;
+	if (checkable.length === 0 && skipped.length === 0 && wellKnownCount === 0) {
 		if (!options.skills) console.log(`${DIM$1}No global skills to check.${RESET$1}`);
 		return {
 			successCount,
 			failCount,
 			checkedCount: 0
+		};
+	}
+	if (checkable.length === 0 && skipped.length === 0) {
+		if (!wkChanged) console.log(`${TEXT$1}✓ All global skills are up to date${RESET$1}`);
+		return {
+			successCount,
+			failCount,
+			checkedCount
 		};
 	}
 	if (checkable.length === 0 && skipped.length > 0) {
@@ -5624,7 +6768,7 @@ async function updateGlobalSkills(options = {}) {
 		};
 	}
 	if (updates.length === 0) {
-		console.log(`${TEXT$1}✓ All global skills are up to date${RESET$1}`);
+		if (!wkChanged) console.log(`${TEXT$1}✓ All global skills are up to date${RESET$1}`);
 		return {
 			successCount,
 			failCount,
@@ -5635,18 +6779,27 @@ async function updateGlobalSkills(options = {}) {
 	console.log();
 	for (const update of updates) {
 		const safeName = sanitizeMetadata(update.name);
-		console.log(`${TEXT$1}Updating ${safeName}...${RESET$1}`);
+		console.log(`${TEXT$1}Updating ${safeName}…${RESET$1}`);
 		const installUrl = buildUpdateInstallSource(update.entry);
+		if (!installUrl) {
+			failCount++;
+			console.log(`  ${DIM$1}✗ Cannot update ${safeName}: lock file is missing sourceUrl for this generic Git source${RESET$1}`);
+			continue;
+		}
 		const cliEntry = join(__dirname$1, "..", "bin", "cli.mjs");
 		if (!existsSync(cliEntry)) {
 			failCount++;
 			console.log(`  ${DIM$1}✗ Failed to update ${safeName}: CLI entrypoint not found at ${cliEntry}${RESET$1}`);
 			continue;
 		}
+		const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ["--full-depth"] : [];
 		if (spawnSync(process.execPath, [
 			cliEntry,
 			"add",
 			installUrl,
+			"--skill",
+			update.name,
+			...fullDepthArgs,
 			"-g",
 			"-y"
 		], {
@@ -5656,7 +6809,8 @@ async function updateGlobalSkills(options = {}) {
 				"pipe"
 			],
 			encoding: "utf-8",
-			shell: process.platform === "win32"
+			env: getUpdateChildEnv(update.entry.sourceType),
+			shell: false
 		}).status === 0) {
 			successCount++;
 			console.log(`  ${TEXT$1}✓${RESET$1} Updated ${safeName}`);
@@ -5687,9 +6841,24 @@ async function updateProjectSkills(options = {}) {
 			foundCount: 0
 		};
 	}
-	const updatable = projectSkills.filter((s) => s.entry.skillPath);
-	const legacy = projectSkills.filter((s) => !s.entry.skillPath);
-	if (updatable.length === 0) {
+	const wellKnownGroups = /* @__PURE__ */ new Map();
+	const nonWellKnown = [];
+	for (const skill of projectSkills) {
+		const { entry } = skill;
+		if (entry.sourceType === "well-known" && entry.sourceUrl && entry.wellKnownDigest) {
+			const group = wellKnownGroups.get(entry.sourceUrl) || [];
+			group.push({
+				name: skill.name,
+				digest: entry.wellKnownDigest,
+				subagents: entry.subagents
+			});
+			wellKnownGroups.set(entry.sourceUrl, group);
+		} else nonWellKnown.push(skill);
+	}
+	const wellKnownCount = Array.from(wellKnownGroups.values()).reduce((sum, items) => sum + items.length, 0);
+	const updatable = nonWellKnown.filter((s) => s.entry.skillPath);
+	const legacy = nonWellKnown.filter((s) => !s.entry.skillPath);
+	if (updatable.length === 0 && wellKnownCount === 0) {
 		console.log(`${DIM$1}No project skills can be updated in place.${RESET$1}`);
 		printLegacyProjectSkills(legacy);
 		return {
@@ -5711,35 +6880,44 @@ async function updateProjectSkills(options = {}) {
 	if (hasUniversal) targetParts.push("Universal");
 	targetParts.push(...targetAgentNames);
 	if (targetParts.length > 0) console.log(`${TEXT$1}Updating for: ${targetParts.join(", ")}${RESET$1}`);
-	console.log(`${TEXT$1}Refreshing ${updatable.length} skill(s)...${RESET$1}`);
+	console.log(`${TEXT$1}Refreshing ${updatable.length + wellKnownCount} skill(s)…${RESET$1}`);
 	console.log();
+	const { successCount: wkSuccessCount, failCount: wkFailCount } = await processWellKnownUpdates(wellKnownGroups, false, options);
+	successCount += wkSuccessCount;
+	failCount += wkFailCount;
 	const bySource = /* @__PURE__ */ new Map();
 	for (const skill of updatable) {
-		const source = skill.entry.source;
-		const existing = bySource.get(source) || [];
+		const key = `${skill.entry.sourceUrl || skill.entry.source}\n${skill.entry.ref ?? ""}`;
+		const existing = bySource.get(key) || [];
 		existing.push(skill);
-		bySource.set(source, existing);
+		bySource.set(key, existing);
 	}
 	const localLock = await readLocalLock();
 	const cliEntry = join(__dirname$1, "..", "bin", "cli.mjs");
-	if (!existsSync(cliEntry)) {
+	if (updatable.length > 0 && !existsSync(cliEntry)) {
 		console.log(`${DIM$1}✗ CLI entrypoint not found at ${cliEntry}${RESET$1}`);
 		return {
 			successCount,
-			failCount: updatable.length,
+			failCount: failCount + updatable.length,
 			foundCount: projectSkills.length
 		};
 	}
-	for (const [source, skillsForSource] of bySource) {
+	for (const [, skillsForSource] of bySource) {
 		const firstEntry = skillsForSource[0].entry;
-		const sourceUrl = firstEntry.source;
+		const source = firstEntry.sourceUrl || firstEntry.source;
+		const cloneSource = buildLocalCloneSource(firstEntry);
 		const ref = firstEntry.ref;
-		const allLockedForSource = Object.entries(localLock.skills).filter(([_, entry]) => entry.source === source).map(([name, _]) => name);
+		const allLockedForSource = Object.entries(localLock.skills).filter(([_, entry]) => (entry.sourceUrl || entry.source) === source && entry.ref === ref).map(([name, _]) => name);
 		let tempDir = null;
 		let deletedSkills = [];
+		if (cloneSource === null) {
+			failCount += skillsForSource.length;
+			console.log(`${DIM$1}✗ Cannot update ${source}: skills-lock.json is missing sourceUrl for this generic Git source${RESET$1}`);
+			continue;
+		}
 		try {
-			tempDir = await cloneRepo(sourceUrl, ref);
-			const discoveredPaths = (await discoverSkills(tempDir)).map((s) => {
+			tempDir = await cloneRepo(cloneSource, ref);
+			const discoveredPaths = (await discoverSkills(tempDir, void 0, { fullDepth: true })).map((s) => {
 				return join(relative(tempDir, s.path), "SKILL.md").split(sep).join("/");
 			});
 			deletedSkills = await checkAndPromptForDeletions(source, allLockedForSource, localLock.skills, false, options, discoveredPaths);
@@ -5751,9 +6929,15 @@ async function updateProjectSkills(options = {}) {
 		const remainingSkills = skillsForSource.filter((s) => !deletedSkills.includes(s.name));
 		for (const skill of remainingSkills) {
 			const safeName = sanitizeMetadata(skill.name);
-			console.log(`${TEXT$1}Updating ${safeName}...${RESET$1}`);
-			const installUrl = formatSourceInput(skill.entry.source, skill.entry.ref);
+			console.log(`${TEXT$1}Updating ${safeName}…${RESET$1}`);
+			const installUrl = buildLocalUpdateSource(skill.entry);
+			if (!installUrl) {
+				failCount++;
+				console.log(`  ${DIM$1}✗ Cannot update ${safeName}: skills-lock.json is missing sourceUrl for this generic Git source${RESET$1}`);
+				continue;
+			}
 			const subagentArgs = skill.entry.subagents?.length ? ["--subagent", ...skill.entry.subagents.map((s) => s === "" ? "root" : s)] : [];
+			const fullDepthArgs = shouldUseFullDepthForUpdate(skill.entry) ? ["--full-depth"] : [];
 			if (spawnSync(process.execPath, [
 				cliEntry,
 				"add",
@@ -5761,6 +6945,7 @@ async function updateProjectSkills(options = {}) {
 				"--skill",
 				skill.name,
 				...subagentArgs,
+				...fullDepthArgs,
 				"-y"
 			], {
 				stdio: [
@@ -5769,7 +6954,8 @@ async function updateProjectSkills(options = {}) {
 					"pipe"
 				],
 				encoding: "utf-8",
-				shell: process.platform === "win32"
+				env: getUpdateChildEnv(skill.entry.sourceType),
+				shell: false
 			}).status === 0) {
 				successCount++;
 				console.log(`  ${TEXT$1}✓${RESET$1} Updated ${safeName}`);
@@ -5791,16 +6977,17 @@ function printLegacyProjectSkills(legacy) {
 	console.log();
 	console.log(`${DIM$1}${legacy.length} project skill(s) cannot be updated automatically (installed before skillPath tracking):${RESET$1}`);
 	for (const skill of legacy) {
-		const reinstall = formatSourceInput(skill.entry.source, skill.entry.ref);
+		const reinstall = buildLocalUpdateSource(skill.entry);
 		console.log(`  ${TEXT$1}•${RESET$1} ${sanitizeMetadata(skill.name)}`);
-		console.log(`    ${DIM$1}To refresh: ${TEXT$1}npx skills add ${reinstall} -y${RESET$1}`);
+		if (reinstall) console.log(`    ${DIM$1}To refresh: ${TEXT$1}npx skills add ${reinstall} -y${RESET$1}`);
+		else console.log(`    ${DIM$1}To refresh: reinstall using the original full Git URL; this lock entry only has an ambiguous shorthand.${RESET$1}`);
 	}
 }
 async function runUpdate(args = []) {
 	const options = parseUpdateOptions(args);
 	const scope = await resolveUpdateScope(options);
-	if (options.skills) console.log(`${TEXT$1}Updating ${options.skills.join(", ")}...${RESET$1}`);
-	else console.log(`${TEXT$1}Checking for skill updates...${RESET$1}`);
+	if (options.skills) console.log(`${TEXT$1}Updating ${options.skills.join(", ")}…${RESET$1}`);
+	else console.log(`${TEXT$1}Checking for skill updates…${RESET$1}`);
 	console.log();
 	let totalSuccess = 0;
 	let totalFail = 0;
@@ -5823,7 +7010,10 @@ async function runUpdate(args = []) {
 	if (options.skills && totalFound === 0) console.log(`${DIM$1}No installed skills found matching: ${options.skills.join(", ")}${RESET$1}`);
 	console.log();
 	if (totalSuccess > 0) console.log(`${TEXT$1}✓ Updated ${totalSuccess} skill(s)${RESET$1}`);
-	if (totalFail > 0) console.log(`${DIM$1}Failed to update ${totalFail} skill(s)${RESET$1}`);
+	if (totalFail > 0) {
+		console.log(`${DIM$1}Failed to update ${totalFail} skill(s)${RESET$1}`);
+		process.exitCode = 1;
+	}
 	track({
 		event: "update",
 		scope,
@@ -5838,8 +7028,8 @@ const BLOB_ALLOWED_OWNERS = [
 	"vercel-labs",
 	"heygen-com"
 ];
-const EXCLUDE_FILES = new Set(["metadata.json"]);
-const EXCLUDE_DIRS = new Set([
+const EXCLUDE_FILES = /* @__PURE__ */ new Set(["metadata.json"]);
+const EXCLUDE_DIRS = /* @__PURE__ */ new Set([
 	".git",
 	"__pycache__",
 	"__pypackages__"
@@ -5864,7 +7054,6 @@ function parseUseOptions(args) {
 		if (!arg) continue;
 		if (arg === "--help" || arg === "-h") options.help = true;
 		else if (arg === "--full-depth") options.fullDepth = true;
-		else if (arg === "--dangerously-accept-openclaw-risks") options.dangerouslyAcceptOpenclawRisks = true;
 		else if (arg === "--skill" || arg === "-s") {
 			const value = args[i + 1];
 			if (!value || value.startsWith("-")) errors.push(`${arg} requires a skill name`);
@@ -5935,19 +7124,41 @@ async function runUse(sourceArgs, options = {}, parseErrors = []) {
 		if (useAgent && !USE_AGENT_CONFIGS[useAgent]) fail(formatUnsupportedAgentError(useAgent));
 		const source = sourceArgs[0];
 		const parsed = parseSource(source);
-		if (getOwnerRepo(parsed)?.split("/")[0]?.toLowerCase() === "openclaw" && !options.dangerouslyAcceptOpenclawRisks) fail([
-			"OpenClaw skills are unverified community submissions.",
-			"Skills run with full agent permissions and could be malicious.",
-			`If you understand the risks, re-run with: skills use ${source} --dangerously-accept-openclaw-risks`
-		].join("\n"));
 		const selector = resolveSelector(parsed.skillFilter, options.skill);
 		const includeInternal = selector !== void 0;
 		let selectedSkill;
-		if (parsed.type === "well-known") selectedSkill = selectWellKnownSkill(await wellKnownProvider.fetchAllSkills(parsed.url), selector, source);
-		else {
+		if (parsed.type === "well-known") {
+			const skills = await wellKnownProvider.fetchAllSkills(parsed.url, { includeInternal }).catch((error) => {
+				if (error instanceof WellKnownScopeNotFoundError) fail(error.message);
+				return [];
+			});
+			if (skills.length > 0) selectedSkill = selectWellKnownSkill(skills, selector, source);
+			else {
+				const downloaded = await downloadSource(parsed.url);
+				cloneTempDir = downloaded.tempDir;
+				const selected = selectSkill(await discoverSkills(downloaded.rootDir, void 0, {
+					includeInternal,
+					fullDepth: options.fullDepth
+				}), selector, source);
+				selectedSkill = {
+					kind: "disk",
+					name: selected.name,
+					directoryName: selected.name,
+					rawContent: selected.rawContent,
+					path: selected.path
+				};
+			}
+		} else {
 			let skills;
 			let blobResult = null;
-			if (parsed.type === "local") {
+			if (parsed.type === "download") {
+				const downloaded = await downloadSource(parsed.url);
+				cloneTempDir = downloaded.tempDir;
+				skills = await discoverSkills(downloaded.rootDir, void 0, {
+					includeInternal,
+					fullDepth: options.fullDepth
+				});
+			} else if (parsed.type === "local") {
 				if (!existsSync(parsed.localPath)) fail(`Local path does not exist: ${parsed.localPath}`);
 				skills = await discoverSkills(parsed.localPath, parsed.subpath, {
 					includeInternal,
@@ -6049,8 +7260,6 @@ Options:
   -s, --skill <skill>   Select the skill to use
   -a, --agent <agent>   Start one supported agent interactively (${SUPPORTED_USE_AGENTS.join(", ")})
   --full-depth          Search nested directories like skills add --full-depth
-  --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
   -h, --help            Show this help message
 
 Examples:
@@ -6291,6 +7500,7 @@ ${BOLD}Add Options:${RESET}
   -l, --list             List available skills in the repository without installing
   -y, --yes              Skip confirmation prompts
   --copy                 Copy files instead of symlinking to agent directories
+  --metadata <json>      Attach valid JSON to the install telemetry event
   --subagent <names>     Install to Eve subagents (use 'root' for the root agent)
   --all                  Shorthand for --skill '*' --agent '*' -y
   --full-depth           Search all subdirectories even when a root SKILL.md exists
@@ -6299,15 +7509,13 @@ ${BOLD}Use Options:${RESET}
   -s, --skill <skill>    Specify the skill to use
   -a, --agent <agent>    Start one supported agent interactively
   --full-depth           Search all subdirectories even when a root SKILL.md exists
-  --dangerously-accept-openclaw-risks
-                         Allow unverified OpenClaw community skills
 
 ${BOLD}Remove Options:${RESET}
   -g, --global           Remove from global scope
-  -a, --agent <agents>   Remove from specific agents (use '*' for all agents)
+  -a, --agent <agents>   Remove from specific agents (omit to clean all agent links)
   -s, --skill <skills>   Specify skills to remove (use '*' for all skills)
   -y, --yes              Skip confirmation prompts
-  --all                  Shorthand for --skill '*' --agent '*' -y
+  --all                  Remove every installed skill (-y implied). Do not combine with named skills.
   
 ${BOLD}Experimental Sync Options:${RESET}
   -a, --agent <agents>   Specify agents to install to (use '*' for all agents)
@@ -6363,10 +7571,10 @@ ${BOLD}Arguments:${RESET}
 
 ${BOLD}Options:${RESET}
   -g, --global       Remove from global scope (~/) instead of project scope
-  -a, --agent        Remove from specific agents (use '*' for all agents)
+  -a, --agent        Remove from specific agents (omit to clean all agent links)
   -s, --skill        Specify skills to remove (use '*' for all skills)
   -y, --yes          Skip confirmation prompts
-  --all              Shorthand for --skill '*' --agent '*' -y
+  --all              Remove every installed skill (-y implied). Do not combine with named skills.
 
 ${BOLD}Examples:${RESET}
   ${DIM}$${RESET} skills remove                           ${DIM}# interactive selection${RESET}
@@ -6436,6 +7644,11 @@ async function main() {
 	}
 	const command = args[0];
 	const restArgs = args.slice(1);
+	if (command !== "--help" && command !== "-h" && command !== "--version" && command !== "-v" && (restArgs.includes("--help") || restArgs.includes("-h"))) {
+		if (command === "remove" || command === "rm" || command === "r") showRemoveHelp();
+		else showHelp();
+		return;
+	}
 	switch (command) {
 		case "find":
 		case "search":
@@ -6459,7 +7672,12 @@ async function main() {
 		case "a":
 		case "add": {
 			if (!inAgent) showLogo();
-			const { source: addSource, options: addOpts } = parseAddOptions(restArgs);
+			const { source: addSource, options: addOpts, errors } = parseAddOptions(restArgs);
+			if (errors.length > 0) {
+				for (const error of errors) console.error(`Error: ${error}`);
+				process.exitCode = 1;
+				break;
+			}
 			await runAdd(addSource, addOpts);
 			break;
 		}
@@ -6470,14 +7688,11 @@ async function main() {
 		}
 		case "remove":
 		case "rm":
-		case "r":
-			if (restArgs.includes("--help") || restArgs.includes("-h")) {
-				showRemoveHelp();
-				break;
-			}
+		case "r": {
 			const { skills, options: removeOptions } = parseRemoveOptions(restArgs);
 			await removeCommand(skills, removeOptions);
 			break;
+		}
 		case "experimental_sync": {
 			if (!inAgent) showLogo();
 			const { options: syncOptions } = parseSyncOptions(restArgs);
@@ -6504,7 +7719,8 @@ async function main() {
 		default:
 			console.log(`Unknown command: ${command}`);
 			console.log(`Run ${BOLD}skills --help${RESET} for usage.`);
+			process.exitCode = 1;
 	}
 }
-main().finally(() => flushTelemetry().then(() => process.exit(0)));
+main().finally(() => flushTelemetry().then(() => process.exit(process.exitCode ?? 0)));
 export {};

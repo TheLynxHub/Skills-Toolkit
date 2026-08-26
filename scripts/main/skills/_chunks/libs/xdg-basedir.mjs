@@ -11,4 +11,4 @@ const xdgDataDirectories = (env.XDG_DATA_DIRS || "/usr/local/share/:/usr/share/"
 if (xdgData) xdgDataDirectories.unshift(xdgData);
 const xdgConfigDirectories = (env.XDG_CONFIG_DIRS || "/etc/xdg").split(":");
 if (xdgConfig) xdgConfigDirectories.unshift(xdgConfig);
-export { xdgConfig as t };
+export { xdgConfig };

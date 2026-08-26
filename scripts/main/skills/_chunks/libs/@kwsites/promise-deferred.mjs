@@ -1,4 +1,4 @@
-import { t as __commonJSMin } from "../../rolldown-runtime.mjs";
+import { __commonJSMin } from "../../rolldown-runtime.mjs";
 var require_dist = /* @__PURE__ */ __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: true });
 	exports.createDeferred = exports.deferred = void 0;
@@ -34,4 +34,4 @@ var require_dist = /* @__PURE__ */ __commonJSMin(((exports) => {
 	exports.deferred = deferred;
 	exports.createDeferred = deferred;
 }));
-export { require_dist as t };
+export { require_dist };
