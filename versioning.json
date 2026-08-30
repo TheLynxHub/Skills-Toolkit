@@ -1,6 +1,15 @@
 {
   "versions": [
     {
+      "version": "0.1.3",
+      "commit": "08ab469",
+      "engines": {
+        "extensionApi": "^2.2.0"
+      },
+      "stage": "early_access",
+      "platforms": ["win32", "linux", "darwin"]
+    },
+    {
       "version": "0.1.2",
       "commit": "a93e111",
       "engines": {
@@ -30,11 +39,23 @@
   ],
   "changes": [
     {
+      "version": "0.1.3",
+      "date": "2026-08-30",
+      "items": [
+        {
+          "🐛 Bug Fixes": [
+            "Fixed discovering installed skills issue.",
+            "Fixed modals, alerts, and dialogs covering the whole app, and resolved an issue where switching tabs duplicated modals."
+          ]
+        }
+      ]
+    },
+    {
       "version": "0.1.2",
       "date": "2026-08-28",
       "items": [
         {
-          "📌 Minor Changes": [" Support LynxHub v3.6.", "Update Skills dependency to v1.5.23."]
+          "📌 Minor Changes": ["Support LynxHub v3.6.", "Update Skills dependency to v1.5.23."]
         }
       ]
     },
