@@ -1,4 +1,4 @@
-import {cpSync, existsSync, mkdirSync} from 'node:fs';
+import {cpSync, existsSync, mkdirSync, readdirSync} from 'node:fs';
 
 import federation from '@originjs/vite-plugin-federation';
 import {sentryVitePlugin} from '@sentry/vite-plugin';
@@ -47,14 +47,20 @@ export default defineConfig(({mode}) => {
               console.error('Could not find skills dist folder at', srcDir);
             }
 
-            const yamlSrcDir = resolve(__dirname, 'node_modules/yaml');
-            const yamlDestDir = resolve(__dirname, '../extension_out/scripts/main/skills/node_modules/yaml');
-            if (existsSync(yamlSrcDir)) {
-              mkdirSync(yamlDestDir, {recursive: true});
-              cpSync(yamlSrcDir, yamlDestDir, {recursive: true});
-              console.log('Successfully copied yaml dependency to extension_out/scripts/main/skills/node_modules/yaml');
+            const nodeModulesSrcDir = resolve(__dirname, 'node_modules');
+            const nodeModulesDestDir = resolve(destDir, 'node_modules');
+            if (existsSync(nodeModulesSrcDir)) {
+              mkdirSync(nodeModulesDestDir, {recursive: true});
+              const entries = readdirSync(nodeModulesSrcDir);
+              for (const entry of entries) {
+                if (entry === 'skills' || entry === '.bin' || entry.startsWith('.')) continue;
+                const entrySrc = resolve(nodeModulesSrcDir, entry);
+                const entryDest = resolve(nodeModulesDestDir, entry);
+                cpSync(entrySrc, entryDest, {recursive: true});
+                console.log(`Successfully copied ${entry} dependency to ${entryDest}`);
+              }
             } else {
-              console.error('Could not find yaml folder at', yamlSrcDir);
+              console.error('Could not find node_modules folder at', nodeModulesSrcDir);
             }
           },
         },
