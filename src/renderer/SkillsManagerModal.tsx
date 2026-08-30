@@ -1,4 +1,4 @@
-import {Description, Modal, Tabs, Typography} from '@heroui/react';
+import {Description, Modal, Tabs, Typography, UseOverlayStateReturn} from '@heroui/react';
 import TabModal from '@lynx/components/TabModal';
 import {CloudStorageIcon, CompassIcon, InboxIcon, PenNewSquareIcon} from '@solar-icons/react/bold-duotone';
 import {useCallback, useEffect, useState} from 'react';
@@ -12,8 +12,9 @@ import {InstalledSkill, RegistrySkill} from './types';
 
 const ipc = (window as any).electron.ipcRenderer;
 
-export default function SkillsManagerModal() {
-  const [isOpen, setIsOpen] = useState(false);
+type Props = {state: UseOverlayStateReturn};
+
+export default function SkillsManagerModal({state}: Props) {
   const [activeTab, setActiveTab] = useState('installed');
 
   // Installed Skills States
@@ -33,7 +34,7 @@ export default function SkillsManagerModal() {
   // Event listener to open modal from window event
   useEffect(() => {
     const handleOpen = () => {
-      setIsOpen(true);
+      state.open();
       loadInstalledSkills();
     };
     window.addEventListener('open-skills-manager', handleOpen);
@@ -42,12 +43,12 @@ export default function SkillsManagerModal() {
 
   // Clear description cache when modal closes
   useEffect(() => {
-    if (!isOpen) {
+    if (!state.isOpen) {
       ipc.invoke('skills-manager:clear-description-cache').catch(err => {
         console.error('Failed to clear description cache:', err);
       });
     }
-  }, [isOpen]);
+  }, [state.isOpen]);
 
   const loadInstalledSkills = useCallback(async () => {
     setIsLoadingInstalled(true);
@@ -102,7 +103,7 @@ export default function SkillsManagerModal() {
 
   return (
     <>
-      <TabModal size="cover" isOpen={isOpen} dialogClassName="pb-0" onOpenChange={setIsOpen}>
+      <TabModal size="cover" isOpen={state.isOpen} dialogClassName="pb-0" onOpenChange={state.setOpen}>
         <Modal.Body className="flex flex-col px-0 h-full max-h-full p-0">
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
